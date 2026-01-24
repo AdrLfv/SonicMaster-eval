@@ -630,14 +630,20 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Evaluate audio restoration quality')
     parser.add_argument('--jsonref', type=str, required=True, 
                         help='Path to JSONL file with clean/degraded/restored paths')
-    parser.add_argument('--output_csv', type=str, required=True, 
-                        help='Path to output Excel file for metrics')
+    parser.add_argument('--output_csv', type=str, default=None,
+                        help='Path to output Excel file for metrics (defaults to jsonref parent dir)')
     parser.add_argument('--output_dir', type=str, default=None,
                         help='Output directory for restored files (only needed if not in JSONL)')
     args = parser.parse_args()
     
     jsonref = args.jsonref
-    output_csv = args.output_csv
+    # Default output CSV path: jsonref parent directory + metrics_{folder}.xlsx
+    if args.output_csv:
+        output_csv = args.output_csv
+    else:
+        json_parent = os.path.dirname(os.path.abspath(jsonref))
+        folder_name = os.path.basename(json_parent) or "evaluation_results"
+        output_csv = os.path.join(json_parent, f"metrics_{folder_name}.xlsx")
     folder = args.output_dir
 
     all_results = []
