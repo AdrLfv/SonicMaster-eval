@@ -107,6 +107,13 @@ def parse_args():
         help="Override output_dir from config (directory for restored audio).",
     )
 
+    parser.add_argument(
+        "--prompt",
+        type=str,
+        default="",
+        help="Restoration prompt to guide the model (e.g., 'Reduce the clipping and reconstruct the lost audio, please.'). Empty string for no prompt.",
+    )
+
     args = parser.parse_args()
 
     return args
@@ -320,7 +327,7 @@ def main():
             deg_audio_latent = torch.stack(deg_audio_list, dim=0)
             deg_audio_latent = deg_audio_latent.to(device)
 
-            text = [""]*len(text)
+            text = [args.prompt]*len(text)
 
             inferred_result = model.inference_flow(
                 deg_audio_latent,
