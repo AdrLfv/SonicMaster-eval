@@ -36,14 +36,22 @@ def main(fileindex=None):
     import logging
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     
+    parser = argparse.ArgumentParser(description='Apply specific degradation to audio files')
+    parser.add_argument('--in_folder', type=str, required=True, help='Input folder containing clean audio files')
+    parser.add_argument('--out_folder', type=str, required=True, help='Output folder for degraded audio files')
+    parser.add_argument('--deg_spec', type=str, required=True, 
+                        help='Degradation specification (e.g., punch, clip, comp, bright, etc.)')
+    args = parser.parse_args()
+    
     timestart=time()
 
     random.seed(28)
     np.random.seed(28)
 
-    in_folder='/work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster'
-    out_folder='/work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_specific_punch_degraded'
-    out_json='/work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_specific_punch_degraded/test_sonicmaster_punch.jsonl'
+    in_folder = args.in_folder
+    out_folder = args.out_folder
+    deg_spec_selected = args.deg_spec
+    out_json = os.path.join(out_folder, 'degradation_pairs.jsonl')
 
     mic_ir_folder='/smallpoli/irs'
     rir_folder='/rirs'
@@ -91,10 +99,21 @@ def main(fileindex=None):
         }
     }
 
+    # Find deg_group from deg_spec
+    deg_group_selected = None
+    for group, info in degradation_groups.items():
+        if deg_spec_selected in info["options"]:
+            deg_group_selected = group
+            break
+    
+    if deg_group_selected is None:
+        raise ValueError(f"Degradation spec '{deg_spec_selected}' not found in degradation_groups")
+    
+    logging.info(f"Selected degradation: {deg_group_selected} - {deg_spec_selected}")
 
     def choose_degradation(stereo_ok=True,vocal_enable=True):
-        # MODIFIED: Always return punch degradation
-        return "Dynamics", "punch"
+        # Return the selected degradation from command line args
+        return deg_group_selected, deg_spec_selected
 
 
     audio_files = sorted(glob(os.path.join(in_folder, '*.flac')))
@@ -539,11 +558,11 @@ def main(fileindex=None):
 
                     degraded_entry = {
                     "source_id": original_id,
-                    "id": f"{original_id}_punch",
+                    "id": f"{original_id}_{deg_spec_selected}",
                     "clean_path": inpath,
                     "degraded_path": audio_out_name,
-                    "degradation_group": "Dynamics",
-                    "degradation_spec": "punch",
+                    "degradation_group": deg_group_selected,
+                    "degradation_spec": deg_spec_selected,
                     "degradations": degrad_groups,
                     "degradations_specifics": degrad_specific,
                     "prompt": prompt_tgt,
