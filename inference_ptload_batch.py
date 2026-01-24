@@ -93,6 +93,20 @@ def parse_args():
         help="Path to the model checkpoint.",
     )
 
+    parser.add_argument(
+        "--infer_file",
+        type=str,
+        default=None,
+        help="Override infer_file from config (JSONL with degraded audio paths and latents).",
+    )
+
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default=None,
+        help="Override output_dir from config (directory for restored audio).",
+    )
+
     args = parser.parse_args()
 
     return args
@@ -120,9 +134,13 @@ def main():
 
     per_device_batch_size = int(config["training"]["per_device_batch_size"])
 
-    output_dir = config["paths"]["output_dir"]
-
-    jsonfile = config["paths"]["infer_file"]
+    # Override config values with command line args if provided
+    output_dir = args.output_dir if args.output_dir is not None else config["paths"]["output_dir"]
+    jsonfile = args.infer_file if args.infer_file is not None else config["paths"]["infer_file"]
+    
+    if rank == 0:
+        print(f"Using infer_file: {jsonfile}")
+        print(f"Using output_dir: {output_dir}")
 
     # accelerator = Accelerator(
     #     gradient_accumulation_steps=gradient_accumulation_steps,
