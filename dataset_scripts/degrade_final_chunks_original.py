@@ -32,28 +32,28 @@ from time import time
 import argparse
 
 
-def main(fileindex=None):
-    import logging
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-    
+def main(fileindex):
+    print("using file index "+str(fileindex))
+
     timestart=time()
 
     random.seed(28)
     np.random.seed(28)
 
-    in_folder='/work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster'
-    out_folder='/work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_specific_punch_degraded'
-    out_json='/work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_specific_punch_degraded/test_sonicmaster_punch.jsonl'
+    in_folder='/dataset/targets'
+    out_folder='/dataset/degrads2'
+
+    in_json=f'/degradchunks/tarchunk_{fileindex}.jsonl'
+    out_json=f'/degradchunks/degchunkb_{fileindex}.jsonl'
 
     mic_ir_folder='/smallpoli/irs'
     rir_folder='/rirs'
     fs=44100
     stereo_thr=0.08
-    
-    os.makedirs(out_folder, exist_ok=True)
 
-    rirs = []
-    N_rirs = 0
+
+    rirs = glob(rir_folder+'/*')
+    N_rirs = len(rirs)
 
 
 
@@ -93,34 +93,52 @@ def main(fileindex=None):
 
 
     def choose_degradation(stereo_ok=True,vocal_enable=True):
-        # MODIFIED: Always return punch degradation
-        return "Dynamics", "punch"
+        # Pick a group based on top-level probability
+        groups = list(degradation_groups.keys())
+        if stereo_ok==False:
+            groups.remove('Stereo')
+        group_probs = [degradation_groups[g]["prob"] for g in groups]
+        group = random.choices(groups, weights=group_probs, k=1)[0]
+        
+
+        # Pick an effect from the group based on internal score
+        options = degradation_groups[group]["options"]
+        option_names = list(options.keys())
+        option_weights = list(options.values())
+
+        if group=='EQ' and vocal_enable==False: #remove vocal degradation option for instrumental songs
+            option_names=option_names[:-1]
+            option_weights=option_weights[:-1]
+
+        degrad = random.choices(option_names, weights=option_weights, k=1)[0]
+
+        return group,degrad
 
 
-    audio_files = sorted(glob(os.path.join(in_folder, '*.flac')))
-    logging.info(f"Found {len(audio_files)} audio files to process")
-    
-    with open(out_json, "w", encoding="utf-8") as outfile:
+    with open(in_json, "r", encoding="utf-8") as infile, \
+            open(out_json, "w", encoding="utf-8") as outfile:
         song_counter=0
-        for inpath in audio_files:
-            original_id = os.path.basename(inpath).replace('.flac', '')
-            logging.info(f"Processing {song_counter+1}/{len(audio_files)}: {original_id}")
+        for line in infile:
+            original = json.loads(line)
+            original_id = original["id"]
 
-            vocal_enable=True
+            vocalinst = original["vocalinstrumental"] #vocal or instrumental track?
+            if vocalinst=="vocal":
+                vocal_enable=True
+            else:
+                vocal_enable=False
+
             reduce_prompt_reverb=False
 
-            degradation_counts = [1]  # Only one degradation per file
-            single_degrad_counter = []
+            inpath = os.path.join(in_folder,original_id+".flac")
+
+            degradation_counts = [1]*4 + [2]*2 + [3]*1  # 4x1, 2x2, 1x3
+            single_degrad_counter = [] #to prevent multiple stereo degrad versions of the same sample...
+
 
             #load audio
             #get diff std to allow destereo
-            try:
-                orig_audio, sr = librosa.load(inpath,sr=fs,mono=False)
-            except Exception as e:
-                logging.error(f"Failed to load audio file {original_id}: {str(e)}")
-                song_counter+=1
-                continue
-                
+            orig_audio, sr = librosa.load(inpath,sr=fs,mono=False)
             if orig_audio.ndim==1: #expand mono to stereo
                 orig_audio = np.stack((orig_audio,orig_audio))
 
@@ -538,19 +556,15 @@ def main(fileindex=None):
                     alt_prompt_tgt=alt_prompt_tgt[:-1] #to remove the final space character
 
                     degraded_entry = {
+                    **original,
                     "source_id": original_id,
-                    "id": f"{original_id}_punch",
-                    "clean_path": inpath,
-                    "degraded_path": audio_out_name,
-                    "degradation_group": "Dynamics",
-                    "degradation_spec": "punch",
+                    "id": f"{original_id}_deg{ver_index+1}",
                     "degradations": degrad_groups,
                     "degradations_specifics": degrad_specific,
                     "prompt": prompt_tgt,
                     "alt_prompt": alt_prompt_tgt,
                     "degradation_tracking": degrad_tracking,
-                    "hidden_clipping": hc,
-                    "duration": len(orig_audio[0]) / fs
+                    "hidden_clipping": hc
                     }
 
                     json.dump(degraded_entry, outfile)
@@ -560,12 +574,17 @@ def main(fileindex=None):
                 except Exception as e:
                     print('ERROR'+str(e))
 
+            print(song_counter)
             song_counter+=1
 
-    elapsed = time()-timestart
-    logging.info(f"Processing completed in {elapsed:.2f} seconds")
-    logging.info(f"Degraded audio saved to: {out_folder}")
-    logging.info(f"JSONL file saved to: {out_json}")
+
+
+
+    print(time()-timestart)
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Process some audio files.")
+    parser.add_argument("fileindex", type=int, help="Index of the file part")
+
+    args = parser.parse_args()
+    main(args.fileindex)

@@ -1,5 +1,6 @@
 import os
 import glob
+import json
 import torch
 import torchaudio
 from tqdm import tqdm
@@ -35,50 +36,92 @@ def main():
     accelerator = Accelerator()
     device = accelerator.device
 
-    input_dir = "/data/shared/JamendoMastero/degrads2"
-    output_dir = "/data/shared/JamendoMastero/degradspt2"
+    input_jsonl = "/work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_specific_punch_degraded/test_sonicmaster_punch.jsonl"
+    output_dir = "/work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_specific_punch_latents"
     duration_sec = 30
-    batch_size = 8
+    batch_size = 16
+
+    print(f"Rank {accelerator.process_index}/{accelerator.num_processes} - Starting encoding process")
+    print(f"Input JSONL: {input_jsonl}")
+    print(f"Output directory: {output_dir}")
+    print(f"Device: {device}")
+
+    # Read jsonl entries
+    with open(input_jsonl, 'r') as f:
+        jsonl_entries = [json.loads(line) for line in f]
 
     # Load VAE and prepare for multi-GPU
+    print(f"Rank {accelerator.process_index} - Loading VAE model...")
     vae = AutoencoderOobleck.from_pretrained(
         "stabilityai/stable-audio-open-1.0", subfolder="vae"
     )
     vae.eval()
     vae.requires_grad_(False)
     vae = accelerator.prepare(vae)
+    print(f"Rank {accelerator.process_index} - VAE model loaded")
 
-    # Partition file list by rank
-    flac_files = sorted(glob.glob(os.path.join(input_dir, "*.flac")))
+    # Partition jsonl entries by rank
     rank = accelerator.process_index
     world_size = accelerator.num_processes
-    flac_files = flac_files[rank::world_size]  # Distribute files across processes
+    print(f"Rank {rank} - Total entries found: {len(jsonl_entries)}")
+    jsonl_entries = jsonl_entries[rank::world_size]  # Distribute entries across processes
+    print(f"Rank {rank} - Entries assigned to this rank: {len(jsonl_entries)}")
 
     batch_waveforms = []
-    batch_filenames = []
+    batch_entries = []
 
-    for flac_file in tqdm(flac_files, desc=f"Rank {rank} Encoding", disable=not accelerator.is_main_process):
+    if len(jsonl_entries) == 0:
+        print(f"Rank {rank} - No entries to process. Exiting.")
+        return
+
+    print(f"Rank {rank} - Starting to process {len(jsonl_entries)} entries...")
+    os.makedirs(output_dir, exist_ok=True)
+
+    for entry in tqdm(jsonl_entries, desc=f"Rank {rank} Encoding", disable=not accelerator.is_main_process):
         try:
-            waveform = read_wav_file(flac_file, duration_sec)
+            degraded_path = entry['degraded_path']
+            waveform = read_wav_file(degraded_path, duration_sec)
             batch_waveforms.append(waveform)
-            batch_filenames.append(os.path.basename(flac_file))
+            batch_entries.append(entry)
 
-            if len(batch_waveforms) == batch_size or flac_file == flac_files[-1]:
+            if len(batch_waveforms) == batch_size or entry == jsonl_entries[-1]:
                 batch_tensor = torch.stack(batch_waveforms).to(device)
 
                 with torch.no_grad():
                     latents = vae.encode(batch_tensor).latent_dist.mode()
                     latents = latents.transpose(1, 2)  # [B, T, C]
 
-                for fname, latent in zip(batch_filenames, latents.cpu()):
-                    outpath = os.path.join(output_dir, fname.replace(".flac", ".pt"))
+                for ent, latent in zip(batch_entries, latents.cpu()):
+                    basename = os.path.basename(ent['degraded_path'])
+                    outpath = os.path.join(output_dir, basename.replace(os.path.splitext(basename)[1], ".pt"))
                     torch.save(latent, outpath)
+                    ent['degraded_latent_path'] = outpath
 
+                print(f"Rank {rank} - Saved batch of {len(batch_entries)} latents")
                 batch_waveforms.clear()
-                batch_filenames.clear()
+                batch_entries.clear()
 
         except Exception as e:
-            print(f"Error processing {flac_file} on rank {rank}: {e}")
+            print(f"Error processing {entry.get('degraded_path', 'unknown')} on rank {rank}: {e}")
+
+    accelerator.wait_for_everyone()
+    
+    if accelerator.is_main_process:
+        # Gather all entries from all ranks and save updated jsonl
+        with open(input_jsonl, 'r') as f:
+            all_entries = [json.loads(line) for line in f]
+        
+        output_jsonl = os.path.join(output_dir, os.path.basename(input_jsonl))
+        with open(output_jsonl, 'w') as f:
+            for entry in all_entries:
+                basename = os.path.basename(entry['degraded_path'])
+                latent_path = os.path.join(output_dir, basename.replace(os.path.splitext(basename)[1], ".pt"))
+                entry['degraded_latent_path'] = latent_path
+                f.write(json.dumps(entry) + '\n')
+        
+        print(f"Saved updated JSONL to {output_jsonl}")
+    
+    print(f"Rank {rank} - Encoding complete!")
 
 
 if __name__ == "__main__":

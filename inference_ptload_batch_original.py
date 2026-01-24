@@ -1,20 +1,29 @@
+import time
 import argparse
 import json
+import logging
 import math
 import os
 import yaml
-from datetime import datetime
-import time
+from pathlib import Path
+import diffusers
+import datasets
+import numpy as np
+import pandas as pd
+import transformers
 import torch
+from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.utils import set_seed
 from datasets import load_dataset
-from torch.utils.data import DataLoader
+from torch.utils.data import Dataset, DataLoader
 from tqdm.auto import tqdm
 from model import TangoFlux
-from utils import Text2AudioDataset, read_wav_file
+from datasets import load_dataset, Audio
+from utils import Text2AudioDataset, read_wav_file, pad_wav
 
 from diffusers import AutoencoderOobleck
+import torchaudio
 from safetensors.torch import load_file
 import soundfile as sf
 
@@ -49,13 +58,13 @@ def parse_args():
     parser.add_argument(
         "--audio_column",
         type=str,
-        default="clean_path",
+        default="original_location",
         help="The name of the column in the datasets containing the target audio paths.",
     )
     parser.add_argument(
         "--deg_audio_column",
         type=str,
-        default="degraded_path",
+        default="location",
         help="The name of the column in the datasets containing the degraded audio paths.",
     )
 
@@ -83,10 +92,6 @@ def parse_args():
     )
 
     parser.add_argument(
-        "--vae_batch_size", type=int, default=16, help="Batch size for VAE encoding."
-    )
-
-    parser.add_argument(
         "--model_ckpt",
         type=str,
         default="/outputs/seed27full10sec/epoch_40",
@@ -102,16 +107,6 @@ def main():
     args = parse_args()
     # accelerator_log_kwargs = {}
     device="cuda" if torch.cuda.is_available() else "cpu"
-    
-    rank = int(os.environ.get('RANK', 0))
-    world_size = int(os.environ.get('WORLD_SIZE', 1))
-    local_rank = int(os.environ.get('LOCAL_RANK', 0))
-    
-    if world_size > 1:
-        torch.distributed.init_process_group(backend='nccl')
-        torch.cuda.set_device(local_rank)
-        device = f"cuda:{local_rank}"
-        print(f"Rank {rank}/{world_size} using device {device}")
     def load_config(config_path):
         with open(config_path, "r") as file:
             return yaml.safe_load(file)
@@ -166,26 +161,14 @@ def main():
     if config["paths"]["infer_file"] != "":
         data_files["infer"] = config["paths"]["infer_file"]
 
-    from datasets import Dataset, DatasetDict
-    with open(config["paths"]["infer_file"], 'r') as f:
-        jsonl_data = [json.loads(line) for line in f]
-    for entry in jsonl_data:
-        entry['degradation_tracking'] = json.dumps(entry['degradation_tracking'])
-        entry['hidden_clipping'] = json.dumps(entry['hidden_clipping'])
-        entry['degradations'] = json.dumps(entry['degradations'])
-        entry['degradations_specifics'] = json.dumps(entry['degradations_specifics'])
-    infer_dataset = Dataset.from_dict({k: [d[k] for d in jsonl_data] for k in jsonl_data[0].keys()})
-    raw_datasets = DatasetDict({"infer": infer_dataset})
+    extension = "json"
+    raw_datasets = load_dataset(extension, data_files=data_files)
     text_column, alt_text_column, audio_column, deg_audio_column = args.text_column, args.alt_text_column, args.audio_column, args.deg_audio_column
 
     model = TangoFlux(config=config["model"])
     # model.load_state_dict(torch.load(os.path.join(args.model_ckpt,"model_1.safetensors")))
 
-    # Handle both directory path and full file path
-    if os.path.isfile(args.model_ckpt):
-        weights = load_file(args.model_ckpt)
-    else:
-        weights = load_file(os.path.join(args.model_ckpt,"model.safetensors"))
+    weights = load_file(os.path.join(args.model_ckpt,"model.safetensors"))
     model.load_state_dict(weights, strict=False)
     model.to(device)
     model.eval()
@@ -228,14 +211,12 @@ def main():
 
     fs=44100
     filenames=[]
-    input_metadata = []
     with open(jsonfile, "r", encoding="utf-8") as infile:
         for line in infile:
             a=json.loads(line)
-            filenames.append(os.path.basename(a[args.deg_audio_column]))
-            input_metadata.append(a)
+            filenames.append(os.path.basename(a["location"]))
 
-    full_dataset = Text2AudioDataset(
+    infer_dataset = Text2AudioDataset(
         raw_datasets["infer"],
         prefix,
         text_column,
@@ -244,22 +225,13 @@ def main():
         deg_audio_column,
         "duration",
         args.num_examples,
-        deg_latent_column="degraded_latent_path",
     )
-    
-    if world_size > 1:
-        dataset_size = len(full_dataset)
-        indices = list(range(rank, dataset_size, world_size))
-        infer_dataset = torch.utils.data.Subset(full_dataset, indices)
-        print(f"Rank {rank}: Processing {len(infer_dataset)}/{dataset_size} samples")
-    else:
-        infer_dataset = full_dataset
 
     infer_dataloader = DataLoader(
         infer_dataset,
         shuffle=False,
         # batch_size=config["training"]["per_device_batch_size"],
-        batch_size=16,
+        batch_size=8,
         collate_fn=infer_dataset.collate_fn,
     )
 
@@ -268,37 +240,37 @@ def main():
     total_batch_size = per_device_batch_size
 
     # Only show the progress bar once on each machine.
-    tqdm(range(math.ceil(len(infer_dataloader) / total_batch_size)))
+    progress_bar = tqdm(
+        range(math.ceil(len(infer_dataloader) / total_batch_size))
+    )
 
 
     infer_outputs=[]
     # wave_list=[]
     model.eval()
-    global_idx=0
+    i=0
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    inference_output_dir = os.path.join(output_dir, f"inference_{timestamp}")
-    if rank == 0:
-        os.makedirs(inference_output_dir, exist_ok=True)
-    
-    if world_size > 1:
-        torch.distributed.barrier()
-    
-    eval_jsonl_path = os.path.join(inference_output_dir, f"evaluation_metadata_rank{rank}.jsonl")
-    eval_jsonl_file = open(eval_jsonl_path, "w", encoding="utf-8")
-    
+    inference_output_dir = os.path.join(output_dir, "inference_seed27full10sec_nocond40g1_ek100")
+    os.makedirs(inference_output_dir, exist_ok=True)
     for step, batch in enumerate(infer_dataloader):
         # inference_batch = next(iter(infer_dataloader))
         # with accelerator.accumulate(model) and torch.no_grad():
         with torch.no_grad():
-            batch_start_time = time.time()  
-            text, alt_text, audios, deg_audios, duration, valid_global_indices, deg_latent_paths = batch
 
+            text, alt_text, audios, deg_audios, duration, _ = batch
+
+            audio_list = []
             deg_audio_list = []
-            for deg_latent_path in deg_latent_paths:
-                loaded_tensor=torch.load(deg_latent_path)
+            for audio_path,deg_audio_path in zip(audios,deg_audios):
+
+                loaded_tensor=torch.load(audio_path)
+                audio_list.append(loaded_tensor)
+
+                loaded_tensor=torch.load(deg_audio_path)
                 deg_audio_list.append(loaded_tensor)
 
+            audio_latent = torch.stack(audio_list, dim=0)
+            audio_latent = audio_latent.to(device)
             deg_audio_latent = torch.stack(deg_audio_list, dim=0)
             deg_audio_latent = deg_audio_latent.to(device)
 
@@ -325,45 +297,9 @@ def main():
             wave = vae.decode(inferred_result.transpose(2, 1)).sample.cpu()
             wave_list.append(wave)
 
-            # Calculate time taken for this batch
-            batch_end_time = time.time()
-            batch_time = batch_end_time - batch_start_time
-            
             for k in range(len(wave_list[0])):
-                file_idx = valid_global_indices[k]
-                restored_filename = filenames[file_idx].replace(".pt", ".flac")
-                restored_path = os.path.join(inference_output_dir, restored_filename)
-                sf.write(restored_path, wave_list[0][k].numpy().T, samplerate=fs, format='FLAC')
-                
-                # Write metadata for evaluation
-                deg_spec = input_metadata[file_idx].get("degradation_spec", "")
-                deg_group = input_metadata[file_idx].get("degradation_group", "")
-                eval_entry = {
-                    "clean_path": input_metadata[file_idx].get(args.audio_column, ""),
-                    "degraded_path": input_metadata[file_idx].get(args.deg_audio_column, ""),
-                    "restored_path": restored_path,
-                    "degradation_name": f"{deg_group}_sonicmaster_{deg_spec}",
-                    "degradation_spec": deg_spec,
-                    "degradation_group": deg_group,
-                    "sample_rate": fs,
-                    "inference_time_seconds": batch_time / len(wave_list[0])  # Time per audio in batch
-                }
-                eval_jsonl_file.write(json.dumps(eval_entry) + "\n")
-    
-    eval_jsonl_file.close()
-    print(f"\n✅ Rank {rank}: Evaluation metadata saved to: {eval_jsonl_path}")
-    
-    if world_size > 1:
-        torch.distributed.barrier()
-        if rank == 0:
-            combined_jsonl = os.path.join(inference_output_dir, "evaluation_metadata.jsonl")
-            with open(combined_jsonl, "w") as outf:
-                for r in range(world_size):
-                    rank_file = os.path.join(inference_output_dir, f"evaluation_metadata_rank{r}.jsonl")
-                    if os.path.exists(rank_file):
-                        with open(rank_file, "r") as inf:
-                            outf.write(inf.read())
-            print(f"\n✅ Combined evaluation metadata saved to: {combined_jsonl}")
+                sf.write(os.path.join(inference_output_dir,filenames[i].replace(".pt", ".flac")), wave_list[0][k].numpy().T, samplerate=fs, format='FLAC')
+                i+=1
 
     # if accelerator.is_main_process:
 

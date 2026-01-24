@@ -4,9 +4,10 @@ paths:
   train_file: "/mastering/FINAL_DATA2/trainset_pt.jsonl"
   val_file: "/mastering/FINAL_DATA2/valset_pt.jsonl"
   test_file: "/mastering/FINAL_DATA2/testset_pt.jsonl"
-  infer_file: "/mastering/FINAL_DATA2/testset_pt.jsonl"
+  # infer_file: "/work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_degraded_clip/degradation_pairs.jsonl"
+  infer_file: "/work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_specific_punch_latents/test_sonicmaster_punch.jsonl"
   resume_from_checkpoint: ""
-  output_dir: "outputs/"
+  output_dir: "/work/vita/datasets/audio/sonicmaster/audios/restored_with_SM_model_specific_punch_no_prompt"
 
 # Training-related parameters
 training:

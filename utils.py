@@ -8,6 +8,18 @@ import random
 import itertools
 import numpy as np
 
+# Punch prompts for random selection
+PROMPTS = [
+    "Give this song a punch!",
+    "Make the transients sharper, please.",
+    "Increase the punchiness of the song by emphasizing the transients.",
+    "Make the audio more punchy and energetic.",
+    "Bring back the snap and attack of transients.",
+    "Add more impact and dynamic punch to the sound.",
+    "Make drums and hits sound more aggressive and tight.",
+    "Increase the percussive clarity and definition."
+]
+
 
 import numpy as np
 
@@ -67,13 +79,16 @@ def pad_wav(waveform, segment_length):
 
 
 def read_wav_file(filename, duration_sec):
-    info = torchaudio.info(filename)
-    sample_rate = info.sample_rate
+    try:
+        info = torchaudio.info(filename)
+        sample_rate = info.sample_rate
 
-    # Calculate the number of frames corresponding to the desired duration
-    num_frames = int(sample_rate * duration_sec)
+        # Calculate the number of frames corresponding to the desired duration
+        num_frames = int(sample_rate * duration_sec)
 
-    waveform, sr = torchaudio.load(filename, num_frames=num_frames)  # Faster!!!
+        waveform, sr = torchaudio.load(filename, num_frames=num_frames)  # Faster!!!
+    except Exception as e:
+        raise FileNotFoundError(f"Error reading audio file '{filename}': {str(e)}")
 
     if waveform.shape[0] == 2:  ## Stereo audio
         resampler = torchaudio.transforms.Resample(orig_freq=sr, new_freq=44100)
@@ -151,15 +166,26 @@ class DPOText2AudioDataset(Dataset):
 
 class Text2AudioDataset(Dataset):
     def __init__(
-        self, dataset, prefix, text_column, alt_text_column, audio_column, deg_audio_column, duration, num_examples=-1
+        self, dataset, prefix, text_column, alt_text_column, audio_column, deg_audio_column, duration, num_examples=-1, deg_latent_column=None
     ):
 
         inputs = list(dataset[text_column])
+        # Randomly select a punch prompt for each sample
+        # inputs = [random.choice(PROMPTS) for _ in range(len(dataset[audio_column]))]
         self.inputs = [prefix + inp for inp in inputs]
         alt_inputs = list(dataset[alt_text_column])
+        # Randomly select a different punch prompt for each sample
+        # alt_inputs = [random.choice(PROMPTS) for _ in range(len(dataset[audio_column]))]
         self.alt_inputs = [prefix + inp for inp in alt_inputs]
         self.audios = list(dataset[audio_column])
         self.deg_audios = list(dataset[deg_audio_column])
+        
+        # Support for preencoded degraded latents
+        if deg_latent_column and deg_latent_column in dataset.column_names:
+            self.deg_latents = list(dataset[deg_latent_column])
+        else:
+            self.deg_latents = None
+        
         # self.durations = list(dataset[duration])
         self.durations = [30]*len(self.inputs)
         self.indices = list(range(len(self.inputs)))
@@ -179,6 +205,8 @@ class Text2AudioDataset(Dataset):
                 self.durations[:num_examples],
             )
             self.indices = self.indices[:num_examples]
+            if self.deg_latents:
+                self.deg_latents = self.deg_latents[:num_examples]
 
     def __len__(self):
         return len(self.inputs)
@@ -187,15 +215,27 @@ class Text2AudioDataset(Dataset):
         return len(self.inputs)
 
     def __getitem__(self, index):
-        s1, s2, s3, s4, s5, s6 = (
-            self.inputs[index],
-            self.alt_inputs[index],
-            self.audios[index],
-            self.deg_audios[index],
-            self.durations[index],
-            self.indices[index],
-        )
-        return s1, s2, s3, s4, s5, s6
+        if self.deg_latents:
+            s1, s2, s3, s4, s5, s6, s7 = (
+                self.inputs[index],
+                self.alt_inputs[index],
+                self.audios[index],
+                self.deg_audios[index],
+                self.durations[index],
+                self.indices[index],
+                self.deg_latents[index],
+            )
+            return s1, s2, s3, s4, s5, s6, s7
+        else:
+            s1, s2, s3, s4, s5, s6 = (
+                self.inputs[index],
+                self.alt_inputs[index],
+                self.audios[index],
+                self.deg_audios[index],
+                self.durations[index],
+                self.indices[index],
+            )
+            return s1, s2, s3, s4, s5, s6
 
     def collate_fn(self, data):
         dat = pd.DataFrame(data)

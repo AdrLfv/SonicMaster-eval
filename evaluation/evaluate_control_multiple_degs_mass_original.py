@@ -1,5 +1,5 @@
 
-# import pyroomacoustics as pra  # Not currently used - custom RT60 implementation below
+import pyroomacoustics as pra
 
 import json
 import os
@@ -517,67 +517,22 @@ def summarize_metrics(metrics_by_degradation):
 
 # === MAIN PROCESSING LOOP ===
 def process_jsonl(jsonl_path, output_dir):
-    print(f"\n📂 Reading JSONL: {jsonl_path}")
-    print(f"📁 Output directory: {output_dir if output_dir else 'Using paths from JSONL'}")
-    
     metrics_by_degradation = defaultdict(list)
     fs=44100
     i=0
-    
-    # Count total lines for progress
     with open(jsonl_path, "r") as f:
-        total_lines = sum(1 for _ in f)
-    print(f"📊 Total samples to process: {total_lines}\n")
-    
-    with open(jsonl_path, "r") as f:
-        for line in tqdm(f, total=total_lines, desc="Processing samples"):
+        for line in tqdm(f):
             entry = json.loads(line)
-            
-            # Extract paths from new JSONL format
-            clean_path = entry["clean_path"]
-            degraded_path = entry["degraded_path"]
-            
-            if i == 0:
-                print(f"\n🔍 First sample:")
-                print(f"  Clean: {clean_path}")
-                print(f"  Degraded: {degraded_path}")
-            
-            # Extract degradation spec from degradation_name or degradation_names
-            if "degradation_names" in entry and entry["degradation_names"] is not None:
-                # Multiple degradations - extract specs from each
-                degradation_names = entry["degradation_names"]
-                degradations = []
-                for deg_name in degradation_names:
-                    # Extract spec from name like "equalizer_sonicmaster_clip" -> "clip"
-                    spec = deg_name.split('_')[-1]
-                    degradations.append(spec)
-                if i == 0:
-                    print(f"  Degradations (multiple): {degradations}")
-            elif "degradation_name" in entry and entry["degradation_name"]:
-                # Single degradation - extract spec from name
-                degradation_name = entry["degradation_name"]
-                # Extract spec from name like "equalizer_sonicmaster_clip" -> "clip"
-                spec = degradation_name.split('_')[-1]
-                degradations = [spec]
-                if i == 0:
-                    print(f"  Degradation (single): {degradations}")
-            else:
-                print(f"⚠️  Warning: No degradation_name or degradation_names found in entry {i}")
-                continue
-            
-            # Get file_id from clean path filename (without extension)
-            file_id = os.path.splitext(os.path.basename(clean_path))[0]
-            
-            # Use restored_path if available, otherwise construct from output_dir
-            if "restored_path" in entry:
-                output_path = entry["restored_path"]
-                if i == 0:
-                    print(f"  Restored: {output_path}")
-            else:
-                degraded_filename = os.path.basename(degraded_path)
-                output_path = os.path.join(output_dir, degraded_filename)
-                if i == 0:
-                    print(f"  Restored: {output_path} (constructed from output_dir)")
+            file_id = entry["id"]
+            degradations = entry["degradations"]
+
+
+            # output_dir
+            clean_path = entry["original_location"].replace("targetspt","targets").replace(".pt",".flac")
+            degraded_path = entry["location"].replace("degradspt","degrads").replace(".pt",".flac")
+
+            filename = os.path.basename(degraded_path)
+            output_path = os.path.join(output_dir, filename)
 
 
 
@@ -602,7 +557,7 @@ def process_jsonl(jsonl_path, output_dir):
                 degraded = load_audio(degraded_path,fs,mono=True)
                 output = load_audio(output_path,fs,mono=True)
             except Exception as e:
-                print(f"\n❌ Failed to load audio for {file_id}: {e}")
+                print(f"Failed to load audio for {file_id}: {e}")
                 continue
 
             result = evaluate_sample(clean, degraded, output, degradations, clean_stereo, degraded_stereo, output_stereo)
@@ -610,62 +565,41 @@ def process_jsonl(jsonl_path, output_dir):
             for degradation, metrics in result.items():
                 metrics_by_degradation[degradation].append(metrics)
 
+            print(i)
             i+=1
             # if i==200:
             #     break
 
-    print(f"\n\n📈 Metrics collected by degradation type:")
     for k, v in metrics_by_degradation.items():
-        print(f"  • {k}: {len(v)} samples")
+        print(f"{k}: {len(v)} entries")
 
-    print(f"\n🔢 Computing summary statistics...")
     summary, summary_multi = summarize_metrics(metrics_by_degradation)
-    print(f"✅ Summary computed for {len(summary) + len(summary_multi)} degradation types")
 
     return summary, summary_multi
 
 
 if __name__ == "__main__":
-    # Option 1: Use evaluation_metadata.jsonl generated by inference_ptload_batch.py
-    # This JSONL contains restored_path, so output_dir can be None or empty
-    jsonref = "/work/vita/datasets/audio/sonicmaster/audios/restored_with_SM_model_specific_punch_no_prompt/inference_20260124_151949/evaluation_metadata_rank0.jsonl"
-    
-    # Option 2: Use original degradation_pairs.jsonl with output_dir
-    # jsonref = "/work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_degraded_clip/degradation_pairs.jsonl"
-    
-    output_csv = "/work/vita/datasets/audio/sonicmaster/audios/restored_with_SM_model_specific_punch_no_prompt/inference_20260124_151949/attribute_metrics_all.xlsx"
+    jsonref = "/testset_pt.jsonl"
+    output_csv = "/evaluation/control/attribute_metrics_all.xlsx"
 
-    # If using evaluation_metadata.jsonl, output_dir can be None (restored_path is in JSONL)
-    # If using degradation_pairs.jsonl, provide the folder with restored audio
     folders = [
-        "/work/vita/datasets/audio/sonicmaster/audios/restored_with_SM_model_specific_punch_no_prompt/inference_20260124_151949/"
+        "outputs/run1",
+        "outputs/run2"
     ]
 
     all_results = []
 
     for folder in folders:
-        print(f"\n🚀 Running evaluation for: {folder if folder else 'paths from JSONL'}")
+        print(f"\n🚀 Running evaluation for: {folder}")
         summary, summary_multi = process_jsonl(jsonref, folder)
 
-        # Get folder name for Excel sheet
-        if folder:
-            # Remove trailing slash and get basename
-            folder_name = os.path.basename(folder.rstrip('/'))
-            if not folder_name:
-                folder_name = "evaluation_results"
-        else:
-            # Use parent directory of JSONL file, or default name if empty
-            folder_name = os.path.basename(os.path.dirname(jsonref))
-            if not folder_name:
-                folder_name = "evaluation_results"
-        
         for d, m in summary.items():
-            m["folder"] = folder_name
+            m["folder"] = os.path.basename(folder)
             m["degradation"] = d
             all_results.append(m)
 
         for d, m in summary_multi.items():
-            m["folder"] = folder_name
+            m["folder"] = os.path.basename(folder)
             m["degradation"] = d
             all_results.append(m)
 

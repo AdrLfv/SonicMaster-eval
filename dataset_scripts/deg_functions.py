@@ -12,7 +12,10 @@ import scipy.signal as signal
 import soundfile as sf
 from glob import glob
 import os
-import pyroomacoustics as pra
+try:
+    import pyroomacoustics as pra
+except ImportError:
+    pra = None
 
 from compressor import FeedForwardCompressor
 
