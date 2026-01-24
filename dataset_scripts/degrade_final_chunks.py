@@ -61,9 +61,18 @@ def main(fileindex=None):
     stereo_thr=0.08
     
     os.makedirs(out_folder, exist_ok=True)
-
-    rirs = glob(rir_folder+'/*')
+    # Collect only valid RIR files (skip directories) and recurse into subfolders
+    rir_extensions = ('.wav', '.flac', '.aif', '.aiff', '.ogg')
+    rirs = []
+    for root, _, files in os.walk(rir_folder):
+        for fname in files:
+            if fname.lower().endswith(rir_extensions):
+                rirs.append(os.path.join(root, fname))
     N_rirs = len(rirs)
+    logging.info(f"Discovered {N_rirs} real RIR files under {rir_folder}")
+    if N_rirs == 0:
+        raise FileNotFoundError(f"No real RIR files found under {rir_folder}. Expected audio files with extensions {rir_extensions}")
+    logging.info("Sample RIR paths: %s", rirs[:5])
 
 
 
