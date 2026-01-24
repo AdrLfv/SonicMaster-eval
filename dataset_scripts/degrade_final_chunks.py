@@ -31,6 +31,8 @@ from prompt_functions import *
 from time import time
 import argparse
 
+import pyroomacoustics as pra
+
 
 def main(fileindex=None):
     import logging
@@ -53,15 +55,15 @@ def main(fileindex=None):
     deg_spec_selected = args.deg_spec
     out_json = os.path.join(out_folder, 'degradation_pairs.jsonl')
 
-    mic_ir_folder='/smallpoli/irs'
-    rir_folder='/rirs'
+    mic_ir_folder='configs/smallpoli'
+    rir_folder='configs/realrirs'
     fs=44100
     stereo_thr=0.08
     
     os.makedirs(out_folder, exist_ok=True)
 
-    rirs = []
-    N_rirs = 0
+    rirs = glob(rir_folder+'/*')
+    N_rirs = len(rirs)
 
 
 
