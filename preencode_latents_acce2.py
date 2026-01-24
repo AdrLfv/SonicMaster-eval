@@ -3,6 +3,7 @@ import glob
 import json
 import torch
 import torchaudio
+import argparse
 from tqdm import tqdm
 from diffusers import AutoencoderOobleck
 from accelerate import Accelerator
@@ -33,13 +34,20 @@ def read_wav_file(filename, duration_sec):
 
 
 def main():
+    parser = argparse.ArgumentParser(description='Pre-encode audio latents using VAE')
+    parser.add_argument('--input_jsonl', type=str, required=True, help='Input JSONL file with degraded audio paths')
+    parser.add_argument('--output_dir', type=str, required=True, help='Output directory for encoded latents')
+    parser.add_argument('--duration_sec', type=int, default=30, help='Duration in seconds to process (default: 30)')
+    parser.add_argument('--batch_size', type=int, default=16, help='Batch size for encoding (default: 16)')
+    args = parser.parse_args()
+    
     accelerator = Accelerator()
     device = accelerator.device
 
-    input_jsonl = "/work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_specific_punch_degraded/test_sonicmaster_punch.jsonl"
-    output_dir = "/work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_specific_punch_latents"
-    duration_sec = 30
-    batch_size = 16
+    input_jsonl = args.input_jsonl
+    output_dir = args.output_dir
+    duration_sec = args.duration_sec
+    batch_size = args.batch_size
 
     print(f"Rank {accelerator.process_index}/{accelerator.num_processes} - Starting encoding process")
     print(f"Input JSONL: {input_jsonl}")
