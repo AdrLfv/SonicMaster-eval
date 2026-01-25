@@ -1,67 +1,134 @@
+"""FAD (Fréchet Audio Distance) Computation
+
+This script computes FAD scores to measure the quality of audio restoration.
+
+FAD is similar to FID (Fréchet Inception Distance) used in image generation.
+It measures the distance between two distributions of audio embeddings:
+    - Lower FAD = more similar distributions = better quality
+    - FAD of 0 = identical distributions (perfect restoration)
+
+FAD is computed using CLAP embeddings and measures:
+    1. Mean difference between embedding distributions
+    2. Covariance difference between distributions
+
+Usage:
+    python extract_fad_mass.py --jsonref path/to/degradation_pairs.jsonl --audio_key restored_path
+
+Outputs:
+    - CSV file with FAD scores comparing clean vs degraded and clean vs output
+    - Lower FAD for output means better restoration quality
+"""
+
 import os
 import json
+import argparse
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from laion_clap import CLAP_Module
 from scipy.linalg import sqrtm
 
-def load_clean_embeddings(npz_path):
-    data = np.load(npz_path, allow_pickle=True)
-    emb = data["embeddings"]
-    fnames = data["filenames"]
-    fname_to_emb = {fname: emb[i] for i, fname in enumerate(fnames)}
-    return fname_to_emb
-
-# def load_test_entries(jsonl_path):
-#     entries = []
-#     with open(jsonl_path, "r") as f:
-#         for line in f:
-#             entry = json.loads(line)
-#             entries.append((entry["id"], entry["original_id"]))
-#     return entries
-
-
-def load_test_entries(jsonl_path):
+def read_entries_from_jsonl(jsonl_path):
+    """Read all entries from a JSONL file.
+    
+    Each line in the JSONL should contain:
+        - clean_path: Path to original clean audio
+        - degraded_path: Path to degraded audio
+        - restored_path or reconstructed_path: Path to model output
+    
+    Args:
+        jsonl_path: Path to JSONL file
+    
+    Returns:
+        List of dictionary entries
+    """
     entries = []
     with open(jsonl_path, "r") as f:
         for line in f:
             entry = json.loads(line)
-            degradations = entry.get("degradations", [])
-            # if len(degradations) > 1:
-            #     continue
-            # if len(degradations) < 2:
-            #     continue
-            entries.append((entry["id"], entry["original_id"]))
+            entries.append(entry)
     return entries
 
 
-def extract_degraded_embeddings(model, entries, degraded_folder, clean_lookup):
-    degraded_embeddings = []
-    clean_embeddings = []
 
-    for degraded_id, original_id in tqdm(entries, desc=f"Extracting from {os.path.basename(degraded_folder)}"):
-        degraded_path = os.path.join(degraded_folder, f"{degraded_id}.flac")
+def extract_embeddings_from_jsonl(model, entries, audio_key='restored_path'):
+    """Extract CLAP embeddings for clean, degraded, and output audio files.
+    
+    These embeddings will be used to compute FAD scores. We need embeddings from
+    all three types of audio to compare:
+        - Clean vs Degraded (how much quality was lost)
+        - Clean vs Output (how much quality was recovered)
+    
+    Args:
+        model: Loaded CLAP model
+        entries: List of entries from JSONL file
+        audio_key: Key to use for output audio path (default: 'restored_path')
+    
+    Returns:
+        Tuple of (clean_embeddings, degraded_embeddings, output_embeddings)
+        Each is a numpy array of shape (num_samples, embedding_dim)
+    """
+    clean_embeddings = []
+    degraded_embeddings = []
+    output_embeddings = []
+    
+    for entry in tqdm(entries, desc="Extracting embeddings"):
+        clean_path = entry["clean_path"]
+        degraded_path = entry["degraded_path"]
+        
+        if audio_key in entry:
+            output_path = entry[audio_key]
+        else:
+            print(f"Warning: {audio_key} not found in entry, skipping.")
+            continue
+        
+        if not os.path.exists(clean_path):
+            print(f"⚠️  Missing clean file: {clean_path}")
+            continue
         if not os.path.exists(degraded_path):
             print(f"⚠️  Missing degraded file: {degraded_path}")
             continue
-        if original_id not in clean_lookup:
-            print(f"⚠️  Clean embedding for '{original_id}' not found.")
+        if not os.path.exists(output_path):
+            print(f"⚠️  Missing output file: {output_path}")
             continue
+        
         try:
-            emb = model.get_audio_embedding_from_filelist([degraded_path], use_tensor=False)
-            if len(emb) == 0:
-                print(f"❌ No embedding for {degraded_path}")
+            clean_emb = model.get_audio_embedding_from_filelist([clean_path], use_tensor=False)
+            degraded_emb = model.get_audio_embedding_from_filelist([degraded_path], use_tensor=False)
+            output_emb = model.get_audio_embedding_from_filelist([output_path], use_tensor=False)
+            
+            if len(clean_emb) == 0 or len(degraded_emb) == 0 or len(output_emb) == 0:
+                print(f"❌ Empty embedding for entry")
                 continue
-            degraded_embeddings.append(emb[0])
-            clean_embeddings.append(clean_lookup[original_id])
+            
+            clean_embeddings.append(clean_emb[0])
+            degraded_embeddings.append(degraded_emb[0])
+            output_embeddings.append(output_emb[0])
         except Exception as e:
-            print(f"❌ Failed on {degraded_path}: {e}")
+            print(f"❌ Failed on entry: {e}")
             continue
-
-    return np.stack(clean_embeddings), np.stack(degraded_embeddings)
+    
+    return np.stack(clean_embeddings), np.stack(degraded_embeddings), np.stack(output_embeddings)
 
 def frechet_distance(mu1, sigma1, mu2, sigma2):
+    """Compute Fréchet distance between two Gaussian distributions.
+    
+    The Fréchet distance measures how different two multivariate Gaussian
+    distributions are. It considers both:
+        1. Distance between means (mu1 - mu2)
+        2. Difference in covariances (sigma1 vs sigma2)
+    
+    Formula: ||mu1 - mu2||^2 + Tr(sigma1 + sigma2 - 2*sqrt(sigma1*sigma2))
+    
+    Args:
+        mu1: Mean of first distribution
+        sigma1: Covariance matrix of first distribution
+        mu2: Mean of second distribution
+        sigma2: Covariance matrix of second distribution
+    
+    Returns:
+        Fréchet distance (scalar). Lower is better (more similar distributions).
+    """
     diff = mu1 - mu2
     covmean = sqrtm(sigma1 @ sigma2)
     if np.iscomplexobj(covmean):
@@ -69,55 +136,90 @@ def frechet_distance(mu1, sigma1, mu2, sigma2):
     return diff @ diff + np.trace(sigma1 + sigma2 - 2 * covmean)
 
 def compute_fad(clean_embs, degraded_embs):
+    """Compute FAD (Fréchet Audio Distance) between two sets of embeddings.
+    
+    Steps:
+        1. Compute mean and covariance of each embedding set
+        2. Calculate Fréchet distance between the two distributions
+    
+    Lower FAD means the two sets of audio are more similar in their
+    perceptual/semantic characteristics.
+    
+    Args:
+        clean_embs: Embeddings from clean audio (shape: num_samples x embedding_dim)
+        degraded_embs: Embeddings from degraded/output audio (shape: num_samples x embedding_dim)
+    
+    Returns:
+        FAD score (scalar). Lower is better.
+            - FAD = 0: Perfect match
+            - FAD < 5: Excellent quality
+            - FAD < 10: Good quality
+            - FAD > 20: Poor quality
+    """
     mu1 = np.mean(clean_embs, axis=0)
     mu2 = np.mean(degraded_embs, axis=0)
     sigma1 = np.cov(clean_embs, rowvar=False)
     sigma2 = np.cov(degraded_embs, rowvar=False)
-    return frechet_distance(mu1, sigma1, mu2, sigma2)
+    fad = frechet_distance(mu1, sigma1, mu2, sigma2)
+    return fad
 
 if __name__ == "__main__":
-    # Inputs
-    jsonl_file = "/testset_pt.jsonl"
-    clean_npz = "/mastering/processedclap/clean_embeddings.npz"
-    folders = [
-        "outputs/run1",
-        "outputs/run2"
-    ]
-    output_csv = "/evaluationfinal/fad_results_all.csv"
+    parser = argparse.ArgumentParser(description='Compute FAD (Frechet Audio Distance) using CLAP embeddings')
+    parser.add_argument('--jsonref', type=str, required=True,
+                        help='Path to JSONL file with clean/degraded/restored paths')
+    parser.add_argument('--output_csv', type=str, default=None,
+                        help='Path to output CSV file for metrics (defaults to jsonref parent dir)')
+    parser.add_argument('--audio_key', type=str, default='restored_path',
+                        help='JSON key for output audio path (default: restored_path, can use reconstructed_path)')
+    args = parser.parse_args()
+    
+    jsonref = args.jsonref
+    
+    if args.output_csv:
+        output_csv = args.output_csv
+    else:
+        json_parent = os.path.dirname(os.path.abspath(jsonref))
+        folder_name = os.path.basename(json_parent) or "fad_results"
+        output_csv = os.path.join(json_parent, f"fad_metrics_{folder_name}.csv")
+    
+    os.makedirs(os.path.dirname(output_csv), exist_ok=True)
 
-    print("📦 Loading clean embeddings...")
-    clean_lookup = load_clean_embeddings(clean_npz)
+    print(f"\n📂 Reading JSONL: {jsonref}")
+    print(f"🔑 Audio key: {args.audio_key}")
+    
+    print("\n📑 Loading entries from JSONL...")
+    entries = read_entries_from_jsonl(jsonref)
+    print(f"Found {len(entries)} entries.")
 
-    print("📑 Loading testset entries...")
-    entries = load_test_entries(jsonl_file)
-
-    print("🎧 Loading CLAP model...")
+    print("\n🎧 Loading CLAP model...")
     model = CLAP_Module(enable_fusion=False)
     model.load_ckpt()
     model.eval()
 
-    results = []
+    print(f"\n🚀 Extracting embeddings...")
+    clean_embs, degraded_embs, output_embs = extract_embeddings_from_jsonl(
+        model, entries, audio_key=args.audio_key)
 
-    for folder in folders:
-        print(f"\n🚀 Processing: {folder}")
-        clean_embs, degraded_embs = extract_degraded_embeddings(model, entries, folder, clean_lookup)
+    if len(clean_embs) == 0 or len(degraded_embs) == 0 or len(output_embs) == 0:
+        print(f"❌ No valid embeddings found")
+        exit(1)
 
-        if len(clean_embs) == 0 or len(degraded_embs) == 0:
-            print(f"❌ Skipping {folder} — no valid embeddings")
-            continue
+    print(f"\n📊 Computing FAD for {len(clean_embs)} samples...")
+    fad_clean_degraded = compute_fad(clean_embs, degraded_embs)
+    fad_clean_output = compute_fad(clean_embs, output_embs)
 
-        print(f"📊 Computing FAD for {len(clean_embs)} pairs...")
-        fad_value = compute_fad(clean_embs, degraded_embs)
+    folder_name = os.path.basename(os.path.dirname(jsonref)) or "fad_results"
+    results = [{
+        "folder": folder_name,
+        "num_samples": len(clean_embs),
+        "fad_clean_degraded": fad_clean_degraded,
+        "fad_clean_output": fad_clean_output,
+        "fad_improvement": fad_clean_degraded - fad_clean_output
+    }]
 
-        results.append({
-            "folder": os.path.basename(folder),
-            "num_pairs": len(clean_embs),
-            "fad": fad_value
-        })
-
-    # Save results
     df = pd.DataFrame(results)
     df.to_csv(output_csv, index=False)
 
-    print("\n✅ All FAD results saved:")
+    print("\n✅ FAD results saved:")
     print(df)
+    print(f"\nSaved to: {output_csv}")
