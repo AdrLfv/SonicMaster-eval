@@ -1,38 +1,3 @@
-
-## Punch effect
-
-### Step 1: Degrade test folder with punch
-```bash
-python dataset_scripts/degrade_final_chunks.py \
-  --in_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster \
-  --out_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_punch_degraded \
-  --deg_spec punch
-```
-
-### Step 2: Encode degraded audio to latents
-```bash
-python preencode_latents_acce2.py \
-  --input_jsonl /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_punch_degraded/degradation_pairs.jsonl \
-  --output_dir /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_punch_latents \
-  --duration_sec 30 \
-  --batch_size 16
-```
-
-### Step 3: Restore audio using the model
-```bash
-python inference_ptload_batch.py \
-  --config configs/tangoflux_config.yaml \
-  --model_ckpt checkpoints/model.safetensors \
-  --infer_file /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_punch_latents/degradation_pairs.jsonl \
-  --output_dir /work/vita/datasets/audio/sonicmaster/audios/restored_punch_prompt \
-  --prompt "Add more impact and dynamic punch to the sound."
-```
-
-### Step 4: Evaluate results
-```bash
-python evaluation/evaluate_control_multiple_degs_mass.py \
-  --jsonref 
-```
 ## Clip effect
 
 ### Step 1: Degrade test folder with clipping
@@ -65,7 +30,7 @@ python inference_ptload_batch.py \
 ### Step 4: Evaluate results
 ```bash
 python evaluation/evaluate_control_multiple_degs_mass.py \
-  --jsonref
+  --jsonref /work/vita/datasets/audio/sonicmaster/audios/restored_clip_prompt/inference_20260124_181638/evaluation_metadata_rank0.jsonl
 ```
 
 ## Small effect
@@ -100,7 +65,7 @@ python inference_ptload_batch.py \
 ### Step 4: Evaluate results
 ```bash
 python evaluation/evaluate_control_multiple_degs_mass.py \
-  --jsonref
+  --jsonref /work/vita/datasets/audio/sonicmaster/audios/restored_small_prompt/inference_20260124_181636/evaluation_metadata_rank0.jsonl
 ```
 
 ## Big effect
@@ -135,7 +100,7 @@ python inference_ptload_batch.py \
 ### Step 4: Evaluate results
 ```bash
 python evaluation/evaluate_control_multiple_degs_mass.py \
-  --jsonref
+  --jsonref /work/vita/datasets/audio/sonicmaster/audios/restored_big_prompt/inference_20260124_181648/evaluation_metadata_rank0.jsonl
 ```
 
 ## Dark effect
@@ -170,7 +135,7 @@ python inference_ptload_batch.py \
 ### Step 4: Evaluate results
 ```bash
 python evaluation/evaluate_control_multiple_degs_mass.py \
-  --jsonref
+  --jsonref /work/vita/datasets/audio/sonicmaster/audios/restored_dark_prompt/inference_20260124_181737/evaluation_metadata_rank0.jsonl
 ```
 
 ## Warm effect
@@ -205,7 +170,7 @@ python inference_ptload_batch.py \
 ### Step 4: Evaluate results
 ```bash
 python evaluation/evaluate_control_multiple_degs_mass.py \
-  --jsonref
+  --jsonref /work/vita/datasets/audio/sonicmaster/audios/restored_warm_prompt/inference_20260124_184547/evaluation_metadata_rank0.jsonl
 ```
 
 ## Real effect
@@ -240,6 +205,6 @@ python inference_ptload_batch.py \
 ### Step 4: Evaluate results
 ```bash
 python evaluation/evaluate_control_multiple_degs_mass.py \
-  --jsonref
+  --jsonref /work/vita/datasets/audio/sonicmaster/audios/restored_real_prompt/inference_20260124_190607/evaluation_metadata_rank0.jsonl
 ```
 
