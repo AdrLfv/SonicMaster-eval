@@ -517,9 +517,10 @@ def summarize_metrics(metrics_by_degradation):
 
 
 # === MAIN PROCESSING LOOP ===
-def process_jsonl(jsonl_path, output_dir):
+def process_jsonl(jsonl_path, output_dir, audio_key='restored_path'):
     print(f"\n📂 Reading JSONL: {jsonl_path}")
     print(f"📁 Output directory: {output_dir if output_dir else 'Using paths from JSONL'}")
+    print(f"🔑 Audio key: {audio_key}")
     
     metrics_by_degradation = defaultdict(list)
     fs=44100
@@ -543,8 +544,13 @@ def process_jsonl(jsonl_path, output_dir):
                 print(f"  Clean: {clean_path}")
                 print(f"  Degraded: {degraded_path}")
             
-            # Extract degradation spec from degradation_name or degradation_names
-            if "degradation_names" in entry and entry["degradation_names"] is not None:
+            # Extract degradation spec from various possible fields
+            if "degradations_specifics" in entry and entry["degradations_specifics"]:
+                # Direct degradations_specifics field (from original dataset)
+                degradations = entry["degradations_specifics"]
+                if i == 0:
+                    print(f"  Degradations (from degradations_specifics): {degradations}")
+            elif "degradation_names" in entry and entry["degradation_names"] is not None:
                 # Multiple degradations - extract specs from each
                 degradation_names = entry["degradation_names"]
                 degradations = []
@@ -562,23 +568,28 @@ def process_jsonl(jsonl_path, output_dir):
                 degradations = [spec]
                 if i == 0:
                     print(f"  Degradation (single): {degradations}")
+            elif "degradation_spec" in entry and entry["degradation_spec"]:
+                # Single degradation spec field
+                degradations = [entry["degradation_spec"]]
+                if i == 0:
+                    print(f"  Degradation (from degradation_spec): {degradations}")
             else:
-                print(f"⚠️  Warning: No degradation_name or degradation_names found in entry {i}")
+                print(f"⚠️  Warning: No degradation information found in entry {i}")
                 continue
             
             # Get file_id from clean path filename (without extension)
             file_id = os.path.splitext(os.path.basename(clean_path))[0]
             
-            # Use restored_path if available, otherwise construct from output_dir
-            if "restored_path" in entry:
-                output_path = entry["restored_path"]
+            # Use audio_key if available, otherwise construct from output_dir
+            if audio_key in entry:
+                output_path = entry[audio_key]
                 if i == 0:
-                    print(f"  Restored: {output_path}")
+                    print(f"  Output ({audio_key}): {output_path}")
             else:
                 degraded_filename = os.path.basename(degraded_path)
                 output_path = os.path.join(output_dir, degraded_filename)
                 if i == 0:
-                    print(f"  Restored: {output_path} (constructed from output_dir)")
+                    print(f"  Output: {output_path} (constructed from output_dir)")
 
 
 
@@ -634,6 +645,8 @@ if __name__ == "__main__":
                         help='Path to output Excel file for metrics (defaults to jsonref parent dir)')
     parser.add_argument('--output_dir', type=str, default=None,
                         help='Output directory for restored files (only needed if not in JSONL)')
+    parser.add_argument('--audio_key', type=str, default='restored_path',
+                        help='JSON key for output audio path (default: restored_path, can use reconstructed_path)')
     args = parser.parse_args()
     
     jsonref = args.jsonref
@@ -649,7 +662,7 @@ if __name__ == "__main__":
     all_results = []
 
     print(f"\n🚀 Running evaluation for: {folder if folder else 'paths from JSONL'}")
-    summary, summary_multi = process_jsonl(jsonref, folder)
+    summary, summary_multi = process_jsonl(jsonref, folder, audio_key=args.audio_key)
 
     # Use parent directory of JSONL file, or default name if empty
     folder_name = os.path.basename(os.path.dirname(jsonref))
