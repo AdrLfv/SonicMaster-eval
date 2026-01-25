@@ -11,6 +11,7 @@ import librosa
 from collections import defaultdict
 from scipy.spatial.distance import cosine, euclidean
 from scipy.signal import stft
+import h5py
 
 import csv
 import pandas as pd
@@ -217,7 +218,17 @@ def spectral_balance_metrics(clean, degraded, output, sr=44100):
 
 
 def load_audio(filepath, sr=44100, mono=True):
-    y, orig_sr = sf.read(filepath)
+    ext = os.path.splitext(filepath)[1].lower()
+    
+    if ext in ['.h5', '.hdf5']:
+        with h5py.File(filepath, 'r') as f:
+            y = f['audio'][:]
+        if y.ndim == 2 and y.shape[0] == 2:
+            y = y.T
+        orig_sr = sr
+    else:
+        y, orig_sr = sf.read(filepath)
+    
     if orig_sr != sr:
         y = librosa.resample(y.T, orig_sr=orig_sr, target_sr=sr).T  # handle stereo resampling
     if mono and y.ndim == 2:

@@ -21,6 +21,7 @@ from scipy.signal.windows import hann
 import librosa
 import scipy.signal as signal
 import soundfile as sf
+import h5py
 
 import json, os
 from glob import glob
@@ -43,6 +44,8 @@ def main(fileindex=None):
     parser.add_argument('--out_folder', type=str, required=True, help='Output folder for degraded audio files')
     parser.add_argument('--deg_spec', type=str, required=True, 
                         help='Degradation specification (e.g., punch, clip, comp, bright, etc.)')
+    parser.add_argument('--output_format', type=str, default='flac', choices=['flac', 'wav', 'hdf5'],
+                        help='Output audio format (default: flac)')
     args = parser.parse_args()
     
     timestart=time()
@@ -548,8 +551,13 @@ def main(fileindex=None):
 
                     
 
-                    audio_out_name=os.path.join(out_folder,f"{original_id}_deg{ver_index+1}"+".flac")
-                    sf.write(audio_out_name, audio.T, samplerate=fs, format='FLAC')
+                    if args.output_format == 'hdf5':
+                        audio_out_name=os.path.join(out_folder,f"{original_id}_deg{ver_index+1}"+".h5")
+                        with h5py.File(audio_out_name, 'w') as f:
+                            f.create_dataset('audio', data=audio, compression='gzip')
+                    else:
+                        audio_out_name=os.path.join(out_folder,f"{original_id}_deg{ver_index+1}"+f".{args.output_format}")
+                        sf.write(audio_out_name, audio.T, samplerate=fs, format=args.output_format.upper())
 
                     if len(degrad_groups)==1:
                         single_degrad_counter.append(degrad_specific[0])

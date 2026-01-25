@@ -51,6 +51,10 @@ def read_audio_file(filename, duration_sec, target_sr=44100):
     elif ext in ['.h5', '.hdf5']:
         with h5py.File(filename, 'r') as f:
             waveform = torch.from_numpy(f['audio'][:])
+            
+            if waveform.dim() == 2 and waveform.shape[1] == 2 and waveform.shape[0] > 2:
+                waveform = waveform.T
+            
             if waveform.dim() == 1:
                 waveform = waveform.unsqueeze(0).repeat(2, 1)
             elif waveform.shape[0] == 1:
@@ -85,7 +89,7 @@ def main():
                         help='Duration in seconds to process (default: 30, use -1 for full length)')
     parser.add_argument('--batch_size', type=int, default=16, 
                         help='Batch size for encoding/decoding (default: 16)')
-    parser.add_argument('--output_format', type=str, default='flac', choices=['flac', 'wav'],
+    parser.add_argument('--output_format', type=str, default='flac', choices=['flac', 'wav', 'hdf5'],
                         help='Output audio format (default: flac)')
     args = parser.parse_args()
     
@@ -148,14 +152,19 @@ def main():
                 for ent, recon_audio in zip(batch_entries, reconstructed):
                     basename = os.path.basename(ent[args.audio_key])
                     base_no_ext = os.path.splitext(basename)[0]
-                    outpath = os.path.join(args.output_dir, f"{base_no_ext}_reconstructed.{args.output_format}")
                     
                     # Save audio
-                    audio_data = recon_audio.numpy().T  # [T, 2]
-                    if args.output_format == 'flac':
-                        sf.write(outpath, audio_data, samplerate=44100, format='FLAC')
+                    if args.output_format == 'hdf5':
+                        outpath = os.path.join(args.output_dir, f"{base_no_ext}_reconstructed.h5")
+                        with h5py.File(outpath, 'w') as f:
+                            f.create_dataset('audio', data=recon_audio.numpy(), compression='gzip')
                     else:
-                        sf.write(outpath, audio_data, samplerate=44100, format='WAV')
+                        outpath = os.path.join(args.output_dir, f"{base_no_ext}_reconstructed.{args.output_format}")
+                        audio_data = recon_audio.numpy().T  # [T, 2]
+                        if args.output_format == 'flac':
+                            sf.write(outpath, audio_data, samplerate=44100, format='FLAC')
+                        else:
+                            sf.write(outpath, audio_data, samplerate=44100, format='WAV')
                     
                     ent['reconstructed_path'] = outpath
 

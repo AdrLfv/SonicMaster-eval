@@ -17,6 +17,7 @@ from utils import Text2AudioDataset, read_wav_file
 from diffusers import AutoencoderOobleck
 from safetensors.torch import load_file
 import soundfile as sf
+import h5py
 
 
 logger = get_logger(__name__)
@@ -112,6 +113,14 @@ def parse_args():
         type=str,
         default="",
         help="Restoration prompt to guide the model (e.g., 'Reduce the clipping and reconstruct the lost audio, please.'). Empty string for no prompt.",
+    )
+    
+    parser.add_argument(
+        "--output_format",
+        type=str,
+        default="flac",
+        choices=["flac", "wav", "hdf5"],
+        help="Output audio format (default: flac)",
     )
 
     args = parser.parse_args()
@@ -356,9 +365,15 @@ def main():
             
             for k in range(len(wave_list[0])):
                 file_idx = valid_global_indices[k]
-                restored_filename = filenames[file_idx].replace(".pt", ".flac")
-                restored_path = os.path.join(inference_output_dir, restored_filename)
-                sf.write(restored_path, wave_list[0][k].numpy().T, samplerate=fs, format='FLAC')
+                if args.output_format == 'hdf5':
+                    restored_filename = filenames[file_idx].replace(".pt", ".h5")
+                    restored_path = os.path.join(inference_output_dir, restored_filename)
+                    with h5py.File(restored_path, 'w') as f:
+                        f.create_dataset('audio', data=wave_list[0][k].numpy(), compression='gzip')
+                else:
+                    restored_filename = filenames[file_idx].replace(".pt", f".{args.output_format}")
+                    restored_path = os.path.join(inference_output_dir, restored_filename)
+                    sf.write(restored_path, wave_list[0][k].numpy().T, samplerate=fs, format=args.output_format.upper())
                 
                 # Write metadata for evaluation
                 deg_spec = input_metadata[file_idx].get("degradation_spec", "")
