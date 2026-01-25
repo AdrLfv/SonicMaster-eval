@@ -1,3 +1,38 @@
+
+## Punch
+
+### Step 1: Degrade test folder with punch
+```bash
+python dataset_scripts/degrade_final_chunks.py \
+  --in_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster \
+  --out_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_punch_degraded \
+  --deg_spec punch
+```
+
+### Step 2: Encode degraded audio to latents
+```bash
+python preencode_latents_acce2.py \
+  --input_jsonl /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_punch_degraded/degradation_pairs.jsonl \
+  --output_dir /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_punch_latents \
+  --duration_sec 30 \
+  --batch_size 16
+```
+
+### Step 3: Restore audio using the model
+```bash
+python inference_ptload_batch.py \
+  --config configs/tangoflux_config.yaml \
+  --model_ckpt checkpoints/model.safetensors \
+  --infer_file /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_punch_latents/degradation_pairs.jsonl \
+  --output_dir /work/vita/datasets/audio/sonicmaster/audios/restored_punch
+```
+
+### Step 4: Evaluate results
+```bash
+python evaluation/evaluate_control_multiple_degs_mass.py \
+  --jsonref /work/vita/datasets/audio/sonicmaster/audios/restored_punch/inference_20260124_165959/evaluation_metadata_rank0.jsonl
+```
+
 ## Clip effect
 
 ### Step 1: Degrade test folder with clipping
