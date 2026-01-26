@@ -122,6 +122,12 @@ def parse_args():
         choices=["flac", "wav", "hdf5"],
         help="Output audio format (default: flac)",
     )
+    
+    parser.add_argument(
+        "--use_timestamp",
+        action="store_true",
+        help="Append timestamp to output directory (creates inference_YYYYMMDD_HHMMSS subdirectory)",
+    )
 
     args = parser.parse_args()
 
@@ -310,8 +316,12 @@ def main():
     model.eval()
     global_idx=0
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    inference_output_dir = os.path.join(output_dir, f"inference_{timestamp}")
+    if args.use_timestamp:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        inference_output_dir = os.path.join(output_dir, f"inference_{timestamp}")
+    else:
+        inference_output_dir = output_dir
+    
     if rank == 0:
         os.makedirs(inference_output_dir, exist_ok=True)
     

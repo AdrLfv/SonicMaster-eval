@@ -19,7 +19,7 @@ python preencode_latents_acce2.py \
   --batch_size 16
 ```
 
-### Step 3: Restore audio using the model
+### Step 3: Restore audio using the model (no prompt)
 ```bash
 python inference_ptload_batch.py \
   --config configs/tangoflux_config.yaml \
@@ -29,10 +29,27 @@ python inference_ptload_batch.py \
   --output_format hdf5
 ```
 
-### Step 4: Evaluate results
+### Step 3: Restore audio using the model (with prompt)
+```bash
+python inference_ptload_batch.py \
+  --config configs/tangoflux_config.yaml \
+  --model_ckpt checkpoints/model.safetensors \
+  --infer_file /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_punch_latents/degradation_pairs.jsonl \
+  --output_dir /work/vita/datasets/audio/sonicmaster/audios/restored_punch_prompt \
+  --prompt "Reduce the punch and reconstruct the lost audio, please." \
+  --output_format hdf5
+```
+
+### Step 4: Evaluate results (no prompt)
 ```bash
 python evaluation/evaluate_control_multiple_degs_mass.py \
-  --jsonref /work/vita/datasets/audio/sonicmaster/audios/restored_punch/inference_20260124_165959/evaluation_metadata_rank0.jsonl
+  --jsonref
+```
+
+### Step 4: Evaluate results (with prompt)
+```bash
+python evaluation/evaluate_control_multiple_degs_mass.py \
+  --jsonref
 ```
 
 ## Clip effect
@@ -76,10 +93,16 @@ python inference_ptload_batch.py \
   --output_format hdf5
 ```
 
-### Step 4: Evaluate results
+### Step 4: Evaluate results (no prompt)
 ```bash
 python evaluation/evaluate_control_multiple_degs_mass.py \
-  --jsonref /work/vita/datasets/audio/sonicmaster/audios/restored_clip/inference_20260124_165959/evaluation_metadata_rank0.jsonl
+  --jsonref
+```
+
+### Step 4: Evaluate results (with prompt)
+```bash
+python evaluation/evaluate_control_multiple_degs_mass.py \
+  --jsonref
 ```
 
 ## Small effect
@@ -123,10 +146,16 @@ python inference_ptload_batch.py \
   --output_format hdf5
 ```
 
-### Step 4: Evaluate results
+### Step 4: Evaluate results (no prompt)
 ```bash
 python evaluation/evaluate_control_multiple_degs_mass.py \
-  --jsonref /work/vita/datasets/audio/sonicmaster/audios/restored_small/inference_*/evaluation_metadata.jsonl
+  --jsonref
+```
+
+### Step 4: Evaluate results (with prompt)
+```bash
+python evaluation/evaluate_control_multiple_degs_mass.py \
+  --jsonref
 ```
 
 ## Big effect
@@ -170,10 +199,16 @@ python inference_ptload_batch.py \
   --output_format hdf5
 ```
 
-### Step 4: Evaluate results
+### Step 4: Evaluate results (no prompt)
 ```bash
 python evaluation/evaluate_control_multiple_degs_mass.py \
-  --jsonref /work/vita/datasets/audio/sonicmaster/audios/restored_big/inference_20260124_175426/evaluation_metadata_rank0.jsonl
+  --jsonref
+```
+
+### Step 4: Evaluate results (with prompt)
+```bash
+python evaluation/evaluate_control_multiple_degs_mass.py \
+  --jsonref
 ```
 
 ## Dark effect
@@ -217,10 +252,16 @@ python inference_ptload_batch.py \
   --output_format hdf5
 ```
 
-### Step 4: Evaluate results
+### Step 4: Evaluate results (no prompt)
 ```bash
 python evaluation/evaluate_control_multiple_degs_mass.py \
-  --jsonref /work/vita/datasets/audio/sonicmaster/audios/restored_dark/inference_20260124_170346/evaluation_metadata_rank0.jsonl
+  --jsonref
+```
+
+### Step 4: Evaluate results (with prompt)
+```bash
+python evaluation/evaluate_control_multiple_degs_mass.py \
+  --jsonref
 ```
 
 ## Warm effect
@@ -264,10 +305,16 @@ python inference_ptload_batch.py \
   --output_format hdf5
 ```
 
-### Step 4: Evaluate results
+### Step 4: Evaluate results (no prompt)
 ```bash
 python evaluation/evaluate_control_multiple_degs_mass.py \
-  --jsonref /work/vita/datasets/audio/sonicmaster/audios/restored_warm/inference_20260124_184509/evaluation_metadata_rank0.jsonl
+  --jsonref
+```
+
+### Step 4: Evaluate results (with prompt)
+```bash
+python evaluation/evaluate_control_multiple_degs_mass.py \
+  --jsonref
 ```
 
 ## Real effect
@@ -311,10 +358,16 @@ python inference_ptload_batch.py \
   --output_format hdf5
 ```
 
-### Step 4: Evaluate results
+### Step 4: Evaluate results (no prompt)
 ```bash
 python evaluation/evaluate_control_multiple_degs_mass.py \
-  --jsonref /work/vita/datasets/audio/sonicmaster/audios/restored_real/inference_20260124_190655/evaluation_metadata_rank0.jsonl
+  --jsonref
+```
+
+### Step 4: Evaluate results (with prompt)
+```bash
+python evaluation/evaluate_control_multiple_degs_mass.py \
+  --jsonref
 ```
 
 ## Xband effect
@@ -358,10 +411,16 @@ python inference_ptload_batch.py \
   --output_format hdf5
 ```
 
-### Step 4: Evaluate results
+### Step 4: Evaluate results (no prompt)
 ```bash
 python evaluation/evaluate_control_multiple_degs_mass.py \
-  --jsonref /work/vita/datasets/audio/sonicmaster/audios/restored_xband/inference_*/evaluation_metadata.jsonl
+  --jsonref
+```
+
+### Step 4: Evaluate results (with prompt)
+```bash
+python evaluation/evaluate_control_multiple_degs_mass.py \
+  --jsonref
 ```
 
 ## Mic effect
@@ -405,10 +464,16 @@ python inference_ptload_batch.py \
   --output_format hdf5
 ```
 
-### Step 4: Evaluate results
+### Step 4: Evaluate results (no prompt)
 ```bash
 python evaluation/evaluate_control_multiple_degs_mass.py \
-  --jsonref /work/vita/datasets/audio/sonicmaster/audios/restored_mic/inference_*/evaluation_metadata.jsonl
+  --jsonref
+```
+
+### Step 4: Evaluate results (with prompt)
+```bash
+python evaluation/evaluate_control_multiple_degs_mass.py \
+  --jsonref
 ```
 
 ## Bright effect
@@ -452,10 +517,16 @@ python inference_ptload_batch.py \
   --output_format hdf5
 ```
 
-### Step 4: Evaluate results
+### Step 4: Evaluate results (no prompt)
 ```bash
 python evaluation/evaluate_control_multiple_degs_mass.py \
-  --jsonref /work/vita/datasets/audio/sonicmaster/audios/restored_bright/inference_*/evaluation_metadata.jsonl
+  --jsonref
+```
+
+### Step 4: Evaluate results (with prompt)
+```bash
+python evaluation/evaluate_control_multiple_degs_mass.py \
+  --jsonref
 ```
 
 ## Airy effect
@@ -499,10 +570,16 @@ python inference_ptload_batch.py \
   --output_format hdf5
 ```
 
-### Step 4: Evaluate results
+### Step 4: Evaluate results (no prompt)
 ```bash
 python evaluation/evaluate_control_multiple_degs_mass.py \
-  --jsonref /work/vita/datasets/audio/sonicmaster/audios/restored_airy/inference_*/evaluation_metadata.jsonl
+  --jsonref
+```
+
+### Step 4: Evaluate results (with prompt)
+```bash
+python evaluation/evaluate_control_multiple_degs_mass.py \
+  --jsonref
 ```
 
 ## Boom effect
@@ -546,10 +623,16 @@ python inference_ptload_batch.py \
   --output_format hdf5
 ```
 
-### Step 4: Evaluate results
+### Step 4: Evaluate results (no prompt)
 ```bash
 python evaluation/evaluate_control_multiple_degs_mass.py \
-  --jsonref /work/vita/datasets/audio/sonicmaster/audios/restored_boom/inference_*/evaluation_metadata.jsonl
+  --jsonref
+```
+
+### Step 4: Evaluate results (with prompt)
+```bash
+python evaluation/evaluate_control_multiple_degs_mass.py \
+  --jsonref
 ```
 
 ## Clarity effect
@@ -593,10 +676,16 @@ python inference_ptload_batch.py \
   --output_format hdf5
 ```
 
-### Step 4: Evaluate results
+### Step 4: Evaluate results (no prompt)
 ```bash
 python evaluation/evaluate_control_multiple_degs_mass.py \
-  --jsonref /work/vita/datasets/audio/sonicmaster/audios/restored_clarity/inference_*/evaluation_metadata.jsonl
+  --jsonref
+```
+
+### Step 4: Evaluate results (with prompt)
+```bash
+python evaluation/evaluate_control_multiple_degs_mass.py \
+  --jsonref
 ```
 
 ## Mud effect
@@ -640,10 +729,16 @@ python inference_ptload_batch.py \
   --output_format hdf5
 ```
 
-### Step 4: Evaluate results
+### Step 4: Evaluate results (no prompt)
 ```bash
 python evaluation/evaluate_control_multiple_degs_mass.py \
-  --jsonref /work/vita/datasets/audio/sonicmaster/audios/restored_mud/inference_*/evaluation_metadata.jsonl
+  --jsonref
+```
+
+### Step 4: Evaluate results (with prompt)
+```bash
+python evaluation/evaluate_control_multiple_degs_mass.py \
+  --jsonref
 ```
 
 ## Vocal effect
@@ -687,10 +782,16 @@ python inference_ptload_batch.py \
   --output_format hdf5
 ```
 
-### Step 4: Evaluate results
+### Step 4: Evaluate results (no prompt)
 ```bash
 python evaluation/evaluate_control_multiple_degs_mass.py \
-  --jsonref /work/vita/datasets/audio/sonicmaster/audios/restored_vocal/inference_*/evaluation_metadata.jsonl
+  --jsonref
+```
+
+### Step 4: Evaluate results (with prompt)
+```bash
+python evaluation/evaluate_control_multiple_degs_mass.py \
+  --jsonref
 ```
 
 ## Comp effect
@@ -734,10 +835,16 @@ python inference_ptload_batch.py \
   --output_format hdf5
 ```
 
-### Step 4: Evaluate results
+### Step 4: Evaluate results (no prompt)
 ```bash
 python evaluation/evaluate_control_multiple_degs_mass.py \
-  --jsonref /work/vita/datasets/audio/sonicmaster/audios/restored_comp/inference_*/evaluation_metadata.jsonl
+  --jsonref
+```
+
+### Step 4: Evaluate results (with prompt)
+```bash
+python evaluation/evaluate_control_multiple_degs_mass.py \
+  --jsonref
 ```
 
 ## Mix effect
@@ -781,10 +888,16 @@ python inference_ptload_batch.py \
   --output_format hdf5
 ```
 
-### Step 4: Evaluate results
+### Step 4: Evaluate results (no prompt)
 ```bash
 python evaluation/evaluate_control_multiple_degs_mass.py \
-  --jsonref /work/vita/datasets/audio/sonicmaster/audios/restored_mix/inference_*/evaluation_metadata.jsonl
+  --jsonref
+```
+
+### Step 4: Evaluate results (with prompt)
+```bash
+python evaluation/evaluate_control_multiple_degs_mass.py \
+  --jsonref
 ```
 
 ## Volume effect
@@ -828,10 +941,16 @@ python inference_ptload_batch.py \
   --output_format hdf5
 ```
 
-### Step 4: Evaluate results
+### Step 4: Evaluate results (no prompt)
 ```bash
 python evaluation/evaluate_control_multiple_degs_mass.py \
-  --jsonref /work/vita/datasets/audio/sonicmaster/audios/restored_volume/inference_*/evaluation_metadata.jsonl
+  --jsonref
+```
+
+### Step 4: Evaluate results (with prompt)
+```bash
+python evaluation/evaluate_control_multiple_degs_mass.py \
+  --jsonref
 ```
 
 ## Stereo effect
@@ -875,9 +994,15 @@ python inference_ptload_batch.py \
   --output_format hdf5
 ```
 
-### Step 4: Evaluate results
+### Step 4: Evaluate results (no prompt)
 ```bash
 python evaluation/evaluate_control_multiple_degs_mass.py \
-  --jsonref /work/vita/datasets/audio/sonicmaster/audios/restored_stereo/inference_*/evaluation_metadata.jsonl
+  --jsonref
+```
+
+### Step 4: Evaluate results (with prompt)
+```bash
+python evaluation/evaluate_control_multiple_degs_mass.py \
+  --jsonref
 ```
 

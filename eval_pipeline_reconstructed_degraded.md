@@ -7,7 +7,8 @@ python reconstruct_vae_baseline.py \
   --input_jsonl /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_punch_degraded/degradation_pairs.jsonl \
   --output_dir /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_punch_degraded_reconstructed \
   --batch_size 16 \
-  --output_format flac
+  --output_format hdf5 \
+  --audio_key degraded_path \
 ```
 
 ### Step 2: Evaluate reconstructed audio
@@ -28,7 +29,8 @@ python reconstruct_vae_baseline.py \
   --input_jsonl /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_clip_degraded/degradation_pairs.jsonl \
   --output_dir /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_clip_degraded_reconstructed \
   --batch_size 16 \
-  --output_format hdf5
+  --output_format hdf5 \
+  --audio_key degraded_path
 ```
 
 ### Step 2: Evaluate reconstructed audio
@@ -49,7 +51,8 @@ python reconstruct_vae_baseline.py \
   --input_jsonl /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_small_degraded/degradation_pairs.jsonl \
   --output_dir /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_small_degraded_reconstructed \
   --batch_size 16 \
-  --output_format flac
+  --output_format hdf5 \
+  --audio_key degraded_path
 ```
 
 ### Step 2: Evaluate reconstructed audio
@@ -70,7 +73,8 @@ python reconstruct_vae_baseline.py \
   --input_jsonl /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_big_degraded/degradation_pairs.jsonl \
   --output_dir /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_big_degraded_reconstructed \
   --batch_size 16 \
-  --output_format flac
+  --output_format hdf5 \
+  --audio_key degraded_path
 ```
 
 ### Step 2: Evaluate reconstructed audio
@@ -91,7 +95,8 @@ python reconstruct_vae_baseline.py \
   --input_jsonl /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_dark_degraded/degradation_pairs.jsonl \
   --output_dir /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_dark_degraded_reconstructed \
   --batch_size 16 \
-  --output_format flac
+  --output_format hdf5 \
+  --audio_key degraded_path
 ```
 
 ### Step 2: Evaluate reconstructed audio
@@ -112,7 +117,8 @@ python reconstruct_vae_baseline.py \
   --input_jsonl /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_warm_degraded/degradation_pairs.jsonl \
   --output_dir /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_warm_degraded_reconstructed \
   --batch_size 16 \
-  --output_format flac
+  --output_format hdf5 \
+  --audio_key degraded_path
 ```
 
 ### Step 2: Evaluate reconstructed audio
@@ -133,7 +139,8 @@ python reconstruct_vae_baseline.py \
   --input_jsonl /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_real_degraded/degradation_pairs.jsonl \
   --output_dir /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_real_degraded_reconstructed \
   --batch_size 16 \
-  --output_format hdf5
+  --output_format hdf5 \
+  --audio_key degraded_path
 ```
 
 ### Step 2: Evaluate reconstructed audio
