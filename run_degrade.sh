@@ -1,8 +1,8 @@
 #!/bin/bash
-#SBATCH --time=02:00:00
+#SBATCH --time=04:00:00
 #SBATCH --job-name=degrade
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=32
 #SBATCH --partition=standard
 #SBATCH --output=/work/vita/alefevre/programs/SonicMaster/logs/degrade/%j.out
 #SBATCH --error=/work/vita/alefevre/programs/SonicMaster/logs/degrade/%j.err

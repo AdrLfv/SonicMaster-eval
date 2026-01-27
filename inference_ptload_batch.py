@@ -388,7 +388,7 @@ def main():
                     "restored_path": restored_path,
                     "sample_rate": fs,
                     "inference_time_seconds": batch_time / len(wave_list[0])  # Time per audio in batch
-                }
+                })
                 eval_jsonl_file.write(json.dumps(eval_entry) + "\n")
     
     eval_jsonl_file.close()
