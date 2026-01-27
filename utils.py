@@ -7,6 +7,8 @@ import torchaudio
 import random
 import itertools
 import numpy as np
+import h5py
+import os
 
 # Punch prompts for random selection
 PROMPTS = [
@@ -79,20 +81,41 @@ def pad_wav(waveform, segment_length):
 
 
 def read_wav_file(filename, duration_sec):
-    try:
-        info = torchaudio.info(filename)
-        sample_rate = info.sample_rate
+    ext = os.path.splitext(filename)[1].lower()
+    
+    if ext in ['.h5', '.hdf5']:
+        with h5py.File(filename, 'r') as f:
+            waveform = torch.from_numpy(f['audio'][:])
+            
+            if waveform.dim() == 2 and waveform.shape[1] == 2 and waveform.shape[0] > 2:
+                waveform = waveform.T
+            
+            if waveform.dim() == 1:
+                waveform = waveform.unsqueeze(0).repeat(2, 1)
+            elif waveform.shape[0] == 1:
+                waveform = waveform.repeat(2, 1)
+            elif waveform.shape[0] > 2:
+                waveform = waveform[:2, :]
+        
+        sr = 44100
+    else:
+        try:
+            info = torchaudio.info(filename)
+            sample_rate = info.sample_rate
 
-        # Calculate the number of frames corresponding to the desired duration
-        num_frames = int(sample_rate * duration_sec)
+            # Calculate the number of frames corresponding to the desired duration
+            num_frames = int(sample_rate * duration_sec)
 
-        waveform, sr = torchaudio.load(filename, num_frames=num_frames)  # Faster!!!
-    except Exception as e:
-        raise FileNotFoundError(f"Error reading audio file '{filename}': {str(e)}")
+            waveform, sr = torchaudio.load(filename, num_frames=num_frames)  # Faster!!!
+        except Exception as e:
+            raise FileNotFoundError(f"Error reading audio file '{filename}': {str(e)}")
 
     if waveform.shape[0] == 2:  ## Stereo audio
-        resampler = torchaudio.transforms.Resample(orig_freq=sr, new_freq=44100)
-        resampled_waveform = resampler(waveform)
+        if sr != 44100:
+            resampler = torchaudio.transforms.Resample(orig_freq=sr, new_freq=44100)
+            resampled_waveform = resampler(waveform)
+        else:
+            resampled_waveform = waveform
         # print(resampled_waveform.shape)
         padded_left = pad_wav(
             resampled_waveform[0], int(44100 * duration_sec)
@@ -101,9 +124,12 @@ def read_wav_file(filename, duration_sec):
 
         return torch.stack([padded_left, padded_right])
     else:
-        waveform = torchaudio.functional.resample(
-            waveform, orig_freq=sr, new_freq=44100
-        )[0]
+        if sr != 44100:
+            waveform = torchaudio.functional.resample(
+                waveform, orig_freq=sr, new_freq=44100
+            )[0]
+        else:
+            waveform = waveform[0]
         waveform = pad_wav(waveform, int(44100 * duration_sec)).unsqueeze(0)
 
         return waveform

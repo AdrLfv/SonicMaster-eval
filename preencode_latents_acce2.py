@@ -4,29 +4,76 @@ import json
 import torch
 import torchaudio
 import argparse
+import h5py
+import numpy as np
 from tqdm import tqdm
 from diffusers import AutoencoderOobleck
 from accelerate import Accelerator
 from utils import pad_wav
+import logging
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
 def read_wav_file(filename, duration_sec):
-    info = torchaudio.info(filename)
-    sample_rate = info.sample_rate
-    num_frames = int(sample_rate * duration_sec)
+    """
+    Read audio file supporting both standard audio formats and HDF5 files.
+    """
+    target_sr = 44100
+    target_length = int(target_sr * duration_sec)
+    
+    ext = os.path.splitext(filename)[1].lower()
+    
+    if ext in ['.h5', '.hdf5']:
+        # Load from HDF5 file
+        with h5py.File(filename, 'r') as f:
+            audio_data = f['audio'][:]
+        
+        # HDF5 files store audio as (channels, samples) or (samples, channels)
+        if audio_data.ndim == 1:
+            # Mono - duplicate to stereo
+            waveform = torch.from_numpy(audio_data).float().unsqueeze(0).repeat(2, 1)
+        elif audio_data.ndim == 2:
+            if audio_data.shape[0] == 2:
+                # Already (channels, samples)
+                waveform = torch.from_numpy(audio_data).float()
+            elif audio_data.shape[1] == 2:
+                # (samples, channels) - transpose
+                waveform = torch.from_numpy(audio_data.T).float()
+            else:
+                # Assume first dim is channels if small
+                if audio_data.shape[0] < audio_data.shape[1]:
+                    waveform = torch.from_numpy(audio_data).float()
+                else:
+                    waveform = torch.from_numpy(audio_data.T).float()
+        else:
+            raise ValueError(f"Unexpected audio shape: {audio_data.shape}")
+        
+        # For HDF5, assume 44100 Hz sample rate (standard for this pipeline)
+        sr = target_sr
+        
+        # Truncate to duration if needed
+        num_frames = int(sr * duration_sec)
+        if waveform.shape[1] > num_frames:
+            waveform = waveform[:, :num_frames]
+    else:
+        # Standard audio file loading with torchaudio
+        info = torchaudio.info(filename)
+        sample_rate = info.sample_rate
+        num_frames = int(sample_rate * duration_sec)
 
-    waveform, sr = torchaudio.load(filename, num_frames=num_frames)
+        waveform, sr = torchaudio.load(filename, num_frames=num_frames)
 
-    # Resample
-    resampler = torchaudio.transforms.Resample(orig_freq=sr, new_freq=44100)
-    waveform = resampler(waveform)
+        # Resample if needed
+        if sr != target_sr:
+            resampler = torchaudio.transforms.Resample(orig_freq=sr, new_freq=target_sr)
+            waveform = resampler(waveform)
 
     # Convert mono to stereo
     if waveform.shape[0] == 1:
         waveform = waveform.repeat(2, 1)
 
     # Pad each channel
-    target_length = int(44100 * duration_sec)
     padded_left = pad_wav(waveform[0], target_length)
     padded_right = pad_wav(waveform[1], target_length)
 
@@ -87,7 +134,7 @@ def main():
 
     for entry in tqdm(jsonl_entries, desc=f"Rank {rank} Encoding", disable=not accelerator.is_main_process):
         try:
-            degraded_path = entry['degraded_path']
+            degraded_path = entry.get('degraded_audio_path') or entry.get('degraded_path')
             waveform = read_wav_file(degraded_path, duration_sec)
             batch_waveforms.append(waveform)
             batch_entries.append(entry)
@@ -100,7 +147,8 @@ def main():
                     latents = latents.transpose(1, 2)  # [B, T, C]
 
                 for ent, latent in zip(batch_entries, latents.cpu()):
-                    basename = os.path.basename(ent['degraded_path'])
+                    degraded_path = ent.get('degraded_audio_path') or ent.get('degraded_path')
+                    basename = os.path.basename(degraded_path)
                     outpath = os.path.join(output_dir, basename.replace(os.path.splitext(basename)[1], ".pt"))
                     torch.save(latent, outpath)
                     ent['degraded_latent_path'] = outpath
@@ -110,7 +158,8 @@ def main():
                 batch_entries.clear()
 
         except Exception as e:
-            print(f"Error processing {entry.get('degraded_path', 'unknown')} on rank {rank}: {e}")
+            degraded_path = entry.get('degraded_audio_path') or entry.get('degraded_path', 'unknown')
+            print(f"Error processing {degraded_path} on rank {rank}: {e}")
 
     accelerator.wait_for_everyone()
     
@@ -122,7 +171,8 @@ def main():
         output_jsonl = os.path.join(output_dir, os.path.basename(input_jsonl))
         with open(output_jsonl, 'w') as f:
             for entry in all_entries:
-                basename = os.path.basename(entry['degraded_path'])
+                degraded_path = entry.get('degraded_audio_path') or entry.get('degraded_path')
+                basename = os.path.basename(degraded_path)
                 latent_path = os.path.join(output_dir, basename.replace(os.path.splitext(basename)[1], ".pt"))
                 entry['degraded_latent_path'] = latent_path
                 f.write(json.dumps(entry) + '\n')

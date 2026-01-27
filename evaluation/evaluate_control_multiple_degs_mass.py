@@ -11,6 +11,7 @@ import librosa
 from collections import defaultdict
 from scipy.spatial.distance import cosine, euclidean
 from scipy.signal import stft
+import h5py
 
 import csv
 import pandas as pd
@@ -217,7 +218,26 @@ def spectral_balance_metrics(clean, degraded, output, sr=44100):
 
 
 def load_audio(filepath, sr=44100, mono=True):
-    y, orig_sr = sf.read(filepath)
+    if '::' in filepath:
+        h5_file_path, dataset_name = filepath.split('::')
+        dataset_name = dataset_name.lstrip('/')
+        with h5py.File(h5_file_path, 'r') as f:
+            y = f[dataset_name]['audio'][:]
+        if y.ndim == 2 and y.shape[0] == 2:
+            y = y.T
+        orig_sr = sr
+    else:
+        ext = os.path.splitext(filepath)[1].lower()
+        
+        if ext in ['.h5', '.hdf5']:
+            with h5py.File(filepath, 'r') as f:
+                y = f['audio'][:]
+            if y.ndim == 2 and y.shape[0] == 2:
+                y = y.T
+            orig_sr = sr
+        else:
+            y, orig_sr = sf.read(filepath)
+    
     if orig_sr != sr:
         y = librosa.resample(y.T, orig_sr=orig_sr, target_sr=sr).T  # handle stereo resampling
     if mono and y.ndim == 2:
@@ -535,46 +555,44 @@ def process_jsonl(jsonl_path, output_dir, audio_key='restored_path'):
         for line in tqdm(f, total=total_lines, desc="Processing samples"):
             entry = json.loads(line)
             
-            # Extract paths from new JSONL format
-            clean_path = entry["clean_path"]
-            degraded_path = entry["degraded_path"]
+            # Extract paths from JSONL format (support both old and new field names)
+            clean_path = entry.get("clean_audio_path") or entry.get("clean_path")
+            degraded_path = entry.get("degraded_audio_path") or entry.get("degraded_path")
             
             if i == 0:
                 print(f"\n🔍 First sample:")
                 print(f"  Clean: {clean_path}")
                 print(f"  Degraded: {degraded_path}")
             
-            # Extract degradation spec from various possible fields
-            if "degradations_specifics" in entry and entry["degradations_specifics"]:
-                # Direct degradations_specifics field (from original dataset)
-                degradations = entry["degradations_specifics"]
-                if i == 0:
-                    print(f"  Degradations (from degradations_specifics): {degradations}")
-            elif "degradation_names" in entry and entry["degradation_names"] is not None:
-                # Multiple degradations - extract specs from each
-                degradation_names = entry["degradation_names"]
+            # Extract degradation spec from degradation_tracking
+            if "degradation_tracking" in entry and entry["degradation_tracking"]:
+                degradation_tracking = entry["degradation_tracking"]
+                if isinstance(degradation_tracking, str):
+                    degradation_tracking = json.loads(degradation_tracking)
+                
+                # Extract degradation specs from tracking dict
                 degradations = []
-                for deg_name in degradation_names:
-                    # Extract spec from name like "equalizer_sonicmaster_clip" -> "clip"
-                    spec = deg_name.split('_')[-1]
-                    degradations.append(spec)
+                for group, specs in degradation_tracking.items():
+                    if specs:  # If this group has degradations
+                        if isinstance(specs, list) and len(specs) > 0:
+                            # First element is the spec name
+                            if isinstance(specs[0], str):
+                                degradations.append(specs[0])
+                            elif isinstance(specs, list) and len(specs) > 0:
+                                # Handle nested list format
+                                for spec_item in specs:
+                                    if isinstance(spec_item, str):
+                                        degradations.append(spec_item)
+                                        break
+                
                 if i == 0:
-                    print(f"  Degradations (multiple): {degradations}")
-            elif "degradation_name" in entry and entry["degradation_name"]:
-                # Single degradation - extract spec from name
-                degradation_name = entry["degradation_name"]
-                # Extract spec from name like "equalizer_sonicmaster_clip" -> "clip"
-                spec = degradation_name.split('_')[-1]
-                degradations = [spec]
-                if i == 0:
-                    print(f"  Degradation (single): {degradations}")
-            elif "degradation_spec" in entry and entry["degradation_spec"]:
-                # Single degradation spec field
-                degradations = [entry["degradation_spec"]]
-                if i == 0:
-                    print(f"  Degradation (from degradation_spec): {degradations}")
+                    print(f"  Degradations (from degradation_tracking): {degradations}")
+                
+                if not degradations:
+                    print(f"⚠️  Warning: degradation_tracking present but no degradations extracted in entry {i}")
+                    continue
             else:
-                print(f"⚠️  Warning: No degradation information found in entry {i}")
+                print(f"⚠️  Warning: No degradation_tracking found in entry {i}")
                 continue
             
             # Get file_id from clean path filename (without extension)
@@ -585,11 +603,14 @@ def process_jsonl(jsonl_path, output_dir, audio_key='restored_path'):
                 output_path = entry[audio_key]
                 if i == 0:
                     print(f"  Output ({audio_key}): {output_path}")
-            else:
+            elif output_dir is not None:
                 degraded_filename = os.path.basename(degraded_path)
                 output_path = os.path.join(output_dir, degraded_filename)
                 if i == 0:
                     print(f"  Output: {output_path} (constructed from output_dir)")
+            else:
+                print(f"⚠️  Warning: audio_key '{audio_key}' not found in entry {i} and no output_dir provided")
+                continue
 
 
 
@@ -680,13 +701,17 @@ if __name__ == "__main__":
         all_results.append(m)
 
     # ✅ Write to Excel: one sheet per folder, rows = degradations
-    with pd.ExcelWriter(output_csv) as writer:
-        df_all = pd.DataFrame(all_results)
-        for folder, group_df in df_all.groupby("folder"):
-            sheet_name = folder[:31]  # Excel limits sheet names to 31 chars
-            group_df.drop(columns=["folder"]).to_excel(writer, sheet_name=sheet_name, index=False)
+    if not all_results:
+        print(f"\n⚠️  Warning: No results to save. The input JSONL file may be empty or no samples were successfully processed.")
+        print(f"   Expected output file: {output_csv}")
+    else:
+        with pd.ExcelWriter(output_csv) as writer:
+            df_all = pd.DataFrame(all_results)
+            for folder, group_df in df_all.groupby("folder"):
+                sheet_name = folder[:31]  # Excel limits sheet names to 31 chars
+                group_df.drop(columns=["folder"]).to_excel(writer, sheet_name=sheet_name, index=False)
 
-    print(f"\n✅ All attribute results saved to Excel: {output_csv}")
+        print(f"\n✅ All attribute results saved to Excel: {output_csv}")
 
 
         # # Save to one big CSV

@@ -21,6 +21,7 @@ from scipy.signal.windows import hann
 import librosa
 import scipy.signal as signal
 import soundfile as sf
+import h5py
 
 import json, os
 from glob import glob
@@ -39,10 +40,14 @@ def main(fileindex=None):
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     
     parser = argparse.ArgumentParser(description='Apply specific degradation to audio files')
-    parser.add_argument('--in_folder', type=str, required=True, help='Input folder containing clean audio files')
+    input_group = parser.add_mutually_exclusive_group(required=True)
+    input_group.add_argument('--in_folder', type=str, help='Input folder containing clean audio files')
+    input_group.add_argument('--in_jsonl', type=str, help='Input JSONL file with audio paths and metadata')
     parser.add_argument('--out_folder', type=str, required=True, help='Output folder for degraded audio files')
     parser.add_argument('--deg_spec', type=str, required=True, 
                         help='Degradation specification (e.g., punch, clip, comp, bright, etc.)')
+    parser.add_argument('--output_format', type=str, default='flac', choices=['flac', 'wav', 'hdf5'],
+                        help='Output audio format (default: flac)')
     args = parser.parse_args()
     
     timestart=time()
@@ -50,17 +55,33 @@ def main(fileindex=None):
     random.seed(28)
     np.random.seed(28)
 
-    in_folder = args.in_folder
     out_folder = args.out_folder
     deg_spec_selected = args.deg_spec
     out_json = os.path.join(out_folder, 'degradation_pairs.jsonl')
+    
+    # Determine input mode and load audio file list
+    if args.in_folder:
+        in_folder = args.in_folder
+        audio_files = sorted(glob(os.path.join(in_folder, '*.flac')))
+        input_entries = None
+        logging.info(f"Input mode: folder ({in_folder})")
+    else:
+        in_jsonl = args.in_jsonl
+        with open(in_jsonl, 'r', encoding='utf-8') as f:
+            input_entries = [json.loads(line) for line in f]
+        audio_files = [entry['clean_audio_path'] for entry in input_entries]
+        logging.info(f"Input mode: JSONL ({in_jsonl})")
+        logging.info(f"Loaded {len(input_entries)} entries from JSONL")
 
-    mic_ir_folder='configs/smallpoli'
+    mic_ir_folder='configs/smallpoli/irs'
     rir_folder='configs/realrirs'
     fs=44100
     stereo_thr=0.08
     
     os.makedirs(out_folder, exist_ok=True)
+    samples_folder = os.path.join(out_folder, 'samples')
+    os.makedirs(samples_folder, exist_ok=True)
+    
     # Collect only valid RIR files (skip directories) and recurse into subfolders
     rir_extensions = ('.wav', '.flac', '.aif', '.aiff', '.ogg')
     rirs = []
@@ -127,13 +148,20 @@ def main(fileindex=None):
         return deg_group_selected, deg_spec_selected
 
 
-    audio_files = sorted(glob(os.path.join(in_folder, '*.flac')))
     logging.info(f"Found {len(audio_files)} audio files to process")
+    
+    # Randomly select 10 indices for saving WAV samples
+    num_samples = min(10, len(audio_files))
+    sample_indices = set(random.sample(range(len(audio_files)), num_samples))
+    logging.info(f"Will save {num_samples} WAV samples in {samples_folder}")
     
     with open(out_json, "w", encoding="utf-8") as outfile:
         song_counter=0
-        for inpath in audio_files:
-            original_id = os.path.basename(inpath).replace('.flac', '')
+        for idx, inpath in enumerate(audio_files):
+            # Get original entry if using JSONL input
+            original_entry = input_entries[idx] if input_entries else None
+            
+            original_id = os.path.basename(inpath).replace('.flac', '').replace('.wav', '').replace('.h5', '').replace('.hdf5', '')
             logging.info(f"Processing {song_counter+1}/{len(audio_files)}: {original_id}")
 
             vocal_enable=True
@@ -145,7 +173,18 @@ def main(fileindex=None):
             #load audio
             #get diff std to allow destereo
             try:
-                orig_audio, sr = librosa.load(inpath,sr=fs,mono=False)
+                if '::' in inpath:
+                    h5_file_path, dataset_name = inpath.split('::')
+                    dataset_name = dataset_name.lstrip('/')
+                    with h5py.File(h5_file_path, 'r') as h5f:
+                        orig_audio = h5f[dataset_name]['audio'][:]
+                    sr = fs
+                    if orig_audio.ndim == 1:
+                        orig_audio = orig_audio.astype(np.float32)
+                    else:
+                        orig_audio = orig_audio.T.astype(np.float32)
+                else:
+                    orig_audio, sr = librosa.load(inpath,sr=fs,mono=False)
             except Exception as e:
                 logging.error(f"Failed to load audio file {original_id}: {str(e)}")
                 song_counter+=1
@@ -153,6 +192,8 @@ def main(fileindex=None):
                 
             if orig_audio.ndim==1: #expand mono to stereo
                 orig_audio = np.stack((orig_audio,orig_audio))
+            elif orig_audio.shape[0]==1: #expand mono (1, N) to stereo (2, N)
+                orig_audio = np.vstack((orig_audio,orig_audio))
 
 
             diff_std = np.std(orig_audio[0,:]-orig_audio[1,:])
@@ -548,8 +589,19 @@ def main(fileindex=None):
 
                     
 
-                    audio_out_name=os.path.join(out_folder,f"{original_id}_deg{ver_index+1}"+".flac")
-                    sf.write(audio_out_name, audio.T, samplerate=fs, format='FLAC')
+                    if args.output_format == 'hdf5':
+                        audio_out_name=os.path.join(out_folder,f"{original_id}_deg{ver_index+1}"+".h5")
+                        with h5py.File(audio_out_name, 'w') as f:
+                            f.create_dataset('audio', data=audio, compression='gzip')
+                    else:
+                        audio_out_name=os.path.join(out_folder,f"{original_id}_deg{ver_index+1}"+f".{args.output_format}")
+                        sf.write(audio_out_name, audio.T, samplerate=fs, format=args.output_format.upper())
+
+                    # Save WAV sample if this index is selected
+                    if idx in sample_indices:
+                        sample_wav_name = os.path.join(samples_folder, f"{original_id}_deg{ver_index+1}.wav")
+                        sf.write(sample_wav_name, audio.T, samplerate=fs, format='WAV')
+                        logging.info(f"Saved sample WAV: {sample_wav_name}")
 
                     if len(degrad_groups)==1:
                         single_degrad_counter.append(degrad_specific[0])
@@ -567,21 +619,32 @@ def main(fileindex=None):
                     prompt_tgt=prompt_tgt[:-1] #to remove the final space character
                     alt_prompt_tgt=alt_prompt_tgt[:-1] #to remove the final space character
 
-                    degraded_entry = {
-                    "source_id": original_id,
-                    "id": f"{original_id}_{deg_spec_selected}",
-                    "clean_path": inpath,
-                    "degraded_path": audio_out_name,
-                    "degradation_group": deg_group_selected,
-                    "degradation_spec": deg_spec_selected,
-                    "degradations": degrad_groups,
-                    "degradations_specifics": degrad_specific,
-                    "prompt": prompt_tgt,
-                    "alt_prompt": alt_prompt_tgt,
-                    "degradation_tracking": degrad_tracking,
-                    "hidden_clipping": hc,
-                    "duration": len(orig_audio[0]) / fs
-                    }
+                    # Start with initial information from input JSONL if available
+                    if original_entry:
+                        degraded_entry = dict(original_entry)
+                        # Only set these if not already present
+                        if "source_id" not in degraded_entry:
+                            degraded_entry["source_id"] = original_id
+                        if "clean_audio_path" not in degraded_entry:
+                            degraded_entry["clean_audio_path"] = inpath
+                        if "duration" not in degraded_entry:
+                            degraded_entry["duration"] = len(orig_audio[0]) / fs
+                    else:
+                        degraded_entry = {
+                            "source_id": original_id,
+                            "clean_audio_path": inpath,
+                            "duration": len(orig_audio[0]) / fs
+                        }
+                    
+                    # Update fields that are modified by degradation
+                    degraded_entry.update({
+                        "id": f"{original_id}_{deg_spec_selected}",
+                        "degraded_audio_path": audio_out_name,
+                        "prompt": prompt_tgt,
+                        "alt_prompt": alt_prompt_tgt,
+                        "degradation_tracking": degrad_tracking,
+                        "hidden_clipping": hc
+                    })
 
                     json.dump(degraded_entry, outfile)
                     outfile.write("\n")

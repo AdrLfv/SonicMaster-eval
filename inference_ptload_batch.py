@@ -17,6 +17,7 @@ from utils import Text2AudioDataset, read_wav_file
 from diffusers import AutoencoderOobleck
 from safetensors.torch import load_file
 import soundfile as sf
+import h5py
 
 
 logger = get_logger(__name__)
@@ -49,13 +50,13 @@ def parse_args():
     parser.add_argument(
         "--audio_column",
         type=str,
-        default="clean_path",
+        default="clean_audio_path",
         help="The name of the column in the datasets containing the target audio paths.",
     )
     parser.add_argument(
         "--deg_audio_column",
         type=str,
-        default="degraded_path",
+        default="degraded_audio_path",
         help="The name of the column in the datasets containing the degraded audio paths.",
     )
 
@@ -112,6 +113,20 @@ def parse_args():
         type=str,
         default="",
         help="Restoration prompt to guide the model (e.g., 'Reduce the clipping and reconstruct the lost audio, please.'). Empty string for no prompt.",
+    )
+    
+    parser.add_argument(
+        "--output_format",
+        type=str,
+        default="flac",
+        choices=["flac", "wav", "hdf5"],
+        help="Output audio format (default: flac)",
+    )
+    
+    parser.add_argument(
+        "--use_timestamp",
+        action="store_true",
+        help="Append timestamp to output directory (creates inference_YYYYMMDD_HHMMSS subdirectory)",
     )
 
     args = parser.parse_args()
@@ -194,11 +209,6 @@ def main():
     from datasets import Dataset, DatasetDict
     with open(config["paths"]["infer_file"], 'r') as f:
         jsonl_data = [json.loads(line) for line in f]
-    for entry in jsonl_data:
-        entry['degradation_tracking'] = json.dumps(entry['degradation_tracking'])
-        entry['hidden_clipping'] = json.dumps(entry['hidden_clipping'])
-        entry['degradations'] = json.dumps(entry['degradations'])
-        entry['degradations_specifics'] = json.dumps(entry['degradations_specifics'])
     infer_dataset = Dataset.from_dict({k: [d[k] for d in jsonl_data] for k in jsonl_data[0].keys()})
     raw_datasets = DatasetDict({"infer": infer_dataset})
     text_column, alt_text_column, audio_column, deg_audio_column = args.text_column, args.alt_text_column, args.audio_column, args.deg_audio_column
@@ -301,8 +311,12 @@ def main():
     model.eval()
     global_idx=0
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    inference_output_dir = os.path.join(output_dir, f"inference_{timestamp}")
+    if args.use_timestamp:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        inference_output_dir = os.path.join(output_dir, f"inference_{timestamp}")
+    else:
+        inference_output_dir = output_dir
+    
     if rank == 0:
         os.makedirs(inference_output_dir, exist_ok=True)
     
@@ -356,23 +370,25 @@ def main():
             
             for k in range(len(wave_list[0])):
                 file_idx = valid_global_indices[k]
-                restored_filename = filenames[file_idx].replace(".pt", ".flac")
-                restored_path = os.path.join(inference_output_dir, restored_filename)
-                sf.write(restored_path, wave_list[0][k].numpy().T, samplerate=fs, format='FLAC')
+                if args.output_format == 'hdf5':
+                    restored_filename = filenames[file_idx].replace(".pt", ".h5")
+                    restored_path = os.path.join(inference_output_dir, restored_filename)
+                    with h5py.File(restored_path, 'w') as f:
+                        f.create_dataset('audio', data=wave_list[0][k].numpy(), compression='gzip')
+                else:
+                    restored_filename = filenames[file_idx].replace(".pt", f".{args.output_format}")
+                    restored_path = os.path.join(inference_output_dir, restored_filename)
+                    sf.write(restored_path, wave_list[0][k].numpy().T, samplerate=fs, format=args.output_format.upper())
                 
-                # Write metadata for evaluation
-                deg_spec = input_metadata[file_idx].get("degradation_spec", "")
-                deg_group = input_metadata[file_idx].get("degradation_group", "")
-                eval_entry = {
-                    "clean_path": input_metadata[file_idx].get(args.audio_column, ""),
-                    "degraded_path": input_metadata[file_idx].get(args.deg_audio_column, ""),
+                # Write metadata for evaluation - start with original metadata
+                eval_entry = dict(input_metadata[file_idx])
+                
+                # Add/update inference-specific fields
+                eval_entry.update({
                     "restored_path": restored_path,
-                    "degradation_name": f"{deg_group}_sonicmaster_{deg_spec}",
-                    "degradation_spec": deg_spec,
-                    "degradation_group": deg_group,
                     "sample_rate": fs,
                     "inference_time_seconds": batch_time / len(wave_list[0])  # Time per audio in batch
-                }
+                })
                 eval_jsonl_file.write(json.dumps(eval_entry) + "\n")
     
     eval_jsonl_file.close()

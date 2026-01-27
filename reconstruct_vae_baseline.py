@@ -51,6 +51,10 @@ def read_audio_file(filename, duration_sec, target_sr=44100):
     elif ext in ['.h5', '.hdf5']:
         with h5py.File(filename, 'r') as f:
             waveform = torch.from_numpy(f['audio'][:])
+            
+            if waveform.dim() == 2 and waveform.shape[1] == 2 and waveform.shape[0] > 2:
+                waveform = waveform.T
+            
             if waveform.dim() == 1:
                 waveform = waveform.unsqueeze(0).repeat(2, 1)
             elif waveform.shape[0] == 1:
@@ -75,17 +79,19 @@ def read_audio_file(filename, duration_sec, target_sr=44100):
 
 def main():
     parser = argparse.ArgumentParser(description='Reconstruct audio through VAE encode-decode (baseline)')
-    parser.add_argument('--input_jsonl', type=str, required=True, 
+    parser.add_argument('--input_jsonl', type=str,
                         help='Input JSONL file with audio paths (key: degraded_path or clean_path)')
+    parser.add_argument('--input_folder', type=str,
+                        help='Input folder containing standalone audio files (no JSONL needed)')
     parser.add_argument('--output_dir', type=str, required=True, 
                         help='Output directory for reconstructed audio')
-    parser.add_argument('--audio_key', type=str, default='degraded_path',
-                        help='JSON key for audio path (default: degraded_path)')
+    parser.add_argument('--audio_key', type=str, default='clean_path',
+                        help='JSON key for audio path (default: clean_path)')
     parser.add_argument('--duration_sec', type=int, default=30, 
                         help='Duration in seconds to process (default: 30, use -1 for full length)')
     parser.add_argument('--batch_size', type=int, default=16, 
                         help='Batch size for encoding/decoding (default: 16)')
-    parser.add_argument('--output_format', type=str, default='flac', choices=['flac', 'wav'],
+    parser.add_argument('--output_format', type=str, default='flac', choices=['flac', 'wav', 'hdf5'],
                         help='Output audio format (default: flac)')
     args = parser.parse_args()
     
@@ -93,14 +99,32 @@ def main():
     device = accelerator.device
 
     print(f"Rank {accelerator.process_index}/{accelerator.num_processes} - Starting VAE reconstruction")
-    print(f"Input JSONL: {args.input_jsonl}")
+    if not args.input_jsonl and not args.input_folder:
+        parser.error('Either --input_jsonl or --input_folder must be provided.')
+    if args.input_jsonl and args.input_folder:
+        parser.error('Please specify only one of --input_jsonl or --input_folder.')
+
+    if args.input_jsonl:
+        print(f"Input JSONL: {args.input_jsonl}")
+    if args.input_folder:
+        print(f"Input folder: {args.input_folder}")
     print(f"Output directory: {args.output_dir}")
     print(f"Audio key: {args.audio_key}")
     print(f"Device: {device}")
 
-    # Read jsonl entries
-    with open(args.input_jsonl, 'r') as f:
-        jsonl_entries = [json.loads(line) for line in f]
+    # Build processing list
+    if args.input_jsonl:
+        with open(args.input_jsonl, 'r') as f:
+            jsonl_entries = [json.loads(line) for line in f]
+    else:
+        supported_exts = ('.wav', '.flac', '.mp3', '.h5', '.hdf5')
+        jsonl_entries = []
+        for fname in sorted(os.listdir(args.input_folder)):
+            full_path = os.path.join(args.input_folder, fname)
+            if os.path.isfile(full_path) and fname.lower().endswith(supported_exts):
+                jsonl_entries.append({args.audio_key: full_path})
+        if not jsonl_entries:
+            raise ValueError(f"No supported audio files found in {args.input_folder}")
 
     # Load VAE and prepare for multi-GPU
     print(f"Rank {accelerator.process_index} - Loading VAE model...")
@@ -118,6 +142,7 @@ def main():
     print(f"Rank {rank} - Total entries found: {len(jsonl_entries)}")
     jsonl_entries = jsonl_entries[rank::world_size]
     print(f"Rank {rank} - Entries assigned to this rank: {len(jsonl_entries)}")
+    local_entries = jsonl_entries
 
     batch_waveforms = []
     batch_entries = []
@@ -148,14 +173,19 @@ def main():
                 for ent, recon_audio in zip(batch_entries, reconstructed):
                     basename = os.path.basename(ent[args.audio_key])
                     base_no_ext = os.path.splitext(basename)[0]
-                    outpath = os.path.join(args.output_dir, f"{base_no_ext}_reconstructed.{args.output_format}")
                     
                     # Save audio
-                    audio_data = recon_audio.numpy().T  # [T, 2]
-                    if args.output_format == 'flac':
-                        sf.write(outpath, audio_data, samplerate=44100, format='FLAC')
+                    if args.output_format == 'hdf5':
+                        outpath = os.path.join(args.output_dir, f"{base_no_ext}_reconstructed.h5")
+                        with h5py.File(outpath, 'w') as f:
+                            f.create_dataset('audio', data=recon_audio.numpy(), compression='gzip')
                     else:
-                        sf.write(outpath, audio_data, samplerate=44100, format='WAV')
+                        outpath = os.path.join(args.output_dir, f"{base_no_ext}_reconstructed.{args.output_format}")
+                        audio_data = recon_audio.numpy().T  # [T, 2]
+                        if args.output_format == 'flac':
+                            sf.write(outpath, audio_data, samplerate=44100, format='FLAC')
+                        else:
+                            sf.write(outpath, audio_data, samplerate=44100, format='WAV')
                     
                     ent['reconstructed_path'] = outpath
 
@@ -167,14 +197,30 @@ def main():
             print(f"Error processing {entry.get(args.audio_key, 'unknown')} on rank {rank}: {e}")
 
     accelerator.wait_for_everyone()
-    
+
+    # Gather entries from all processes
     if accelerator.is_main_process:
-        # Save updated jsonl with reconstructed paths
-        output_jsonl = os.path.join(args.output_dir, f"reconstructed_{os.path.basename(args.input_jsonl)}")
+        flat_entries = local_entries
+    else:
+        flat_entries = []
+
+    if accelerator.is_main_process:
+        if args.input_jsonl:
+            output_jsonl = os.path.join(
+                args.output_dir,
+                f"reconstructed_{os.path.basename(args.input_jsonl)}"
+            )
+        else:
+            folder_name = os.path.basename(os.path.normpath(args.input_folder))
+            output_jsonl = os.path.join(
+                args.output_dir,
+                f"reconstructed_{folder_name}.jsonl"
+            )
+
         with open(output_jsonl, 'w') as f:
-            for entry in jsonl_entries:
+            for entry in flat_entries:
                 f.write(json.dumps(entry) + '\n')
-        
+
         print(f"Saved updated JSONL to {output_jsonl}")
     
     print(f"Rank {rank} - VAE reconstruction complete!")
