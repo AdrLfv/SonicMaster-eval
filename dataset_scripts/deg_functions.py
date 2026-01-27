@@ -288,11 +288,16 @@ def microphone_function(input_audio,mic_number,ir_folder,fs):
     # fs=44100
 
     files=glob(ir_folder+'/*')
-
+    files = [f for f in files if os.path.isfile(f) and f.endswith('.npy')]
+    
+    if not files:
+        raise FileNotFoundError(f"No .npy files found in {ir_folder}")
+    
+    mic_number = mic_number % len(files)
     filename=files[mic_number]
     phonename=os.path.basename(filename)[:-4] #remove .npy extension
 
-    impulse_response=np.load(filename)
+    impulse_response=np.load(filename, allow_pickle=False)
     impulse_response /= np.max(np.abs(impulse_response)) #use or not use?
 
     #detect peak to start from - eliminating time shifts

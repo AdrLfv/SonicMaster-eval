@@ -4,7 +4,7 @@
 ### Step 1: Degrade test folder with punch
 ```bash
 python dataset_scripts/degrade_final_chunks.py \
-  --in_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster \
+  --in_json /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster/metadata.jsonl \
   --out_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_punch_degraded \
   --deg_spec punch \
   --output_format hdf5
@@ -43,7 +43,7 @@ python inference_ptload_batch.py \
 ### Step 4: Evaluate results (no prompt)
 ```bash
 python evaluation/evaluate_control_multiple_degs_mass.py \
-  --jsonref
+  --jsonref 
 ```
 
 ### Step 4: Evaluate results (with prompt)
@@ -57,7 +57,7 @@ python evaluation/evaluate_control_multiple_degs_mass.py \
 ### Step 1: Degrade test folder with clipping
 ```bash
 python dataset_scripts/degrade_final_chunks.py \
-  --in_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster \
+  --in_json /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster/metadata.jsonl \
   --out_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_clip_degraded \
   --deg_spec clip \
   --output_format hdf5
@@ -110,7 +110,7 @@ python evaluation/evaluate_control_multiple_degs_mass.py \
 ### Step 1: Degrade test folder with small
 ```bash
 python dataset_scripts/degrade_final_chunks.py \
-  --in_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster \
+  --in_json /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster/metadata.jsonl \
   --out_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_small_degraded \
   --deg_spec small \
   --output_format hdf5
@@ -163,7 +163,7 @@ python evaluation/evaluate_control_multiple_degs_mass.py \
 ### Step 1: Degrade test folder with big
 ```bash
 python dataset_scripts/degrade_final_chunks.py \
-  --in_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster \
+  --in_json /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster/metadata.jsonl \
   --out_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_big_degraded \
   --deg_spec big \
   --output_format hdf5
@@ -216,7 +216,7 @@ python evaluation/evaluate_control_multiple_degs_mass.py \
 ### Step 1: Degrade test folder with dark
 ```bash
 python dataset_scripts/degrade_final_chunks.py \
-  --in_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster \
+  --in_json /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster/metadata.jsonl \
   --out_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_dark_degraded \
   --deg_spec dark \
   --output_format hdf5
@@ -269,7 +269,7 @@ python evaluation/evaluate_control_multiple_degs_mass.py \
 ### Step 1: Degrade test folder with warm
 ```bash
 python dataset_scripts/degrade_final_chunks.py \
-  --in_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster \
+  --in_json /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster/metadata.jsonl \
   --out_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_warm_degraded \
   --deg_spec warm \
   --output_format hdf5
@@ -322,7 +322,7 @@ python evaluation/evaluate_control_multiple_degs_mass.py \
 ### Step 1: Degrade test folder with real
 ```bash
 python dataset_scripts/degrade_final_chunks.py \
-  --in_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster \
+  --in_json /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster/metadata.jsonl \
   --out_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_real_degraded \
   --deg_spec real \
   --output_format hdf5
@@ -375,7 +375,7 @@ python evaluation/evaluate_control_multiple_degs_mass.py \
 ### Step 1: Degrade test folder with xband
 ```bash
 python dataset_scripts/degrade_final_chunks.py \
-  --in_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster \
+  --in_json /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster/metadata.jsonl \
   --out_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_xband_degraded \
   --deg_spec xband \
   --output_format hdf5
@@ -428,7 +428,7 @@ python evaluation/evaluate_control_multiple_degs_mass.py \
 ### Step 1: Degrade test folder with mic
 ```bash
 python dataset_scripts/degrade_final_chunks.py \
-  --in_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster \
+  --in_json /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster/metadata.jsonl \
   --out_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_mic_degraded \
   --deg_spec mic \
   --output_format hdf5
@@ -481,7 +481,7 @@ python evaluation/evaluate_control_multiple_degs_mass.py \
 ### Step 1: Degrade test folder with bright
 ```bash
 python dataset_scripts/degrade_final_chunks.py \
-  --in_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster \
+  --in_json /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster/metadata.jsonl \
   --out_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_bright_degraded \
   --deg_spec bright \
   --output_format hdf5
@@ -534,7 +534,7 @@ python evaluation/evaluate_control_multiple_degs_mass.py \
 ### Step 1: Degrade test folder with airy
 ```bash
 python dataset_scripts/degrade_final_chunks.py \
-  --in_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster \
+  --in_json /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster/metadata.jsonl \
   --out_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_airy_degraded \
   --deg_spec airy \
   --output_format hdf5
@@ -587,7 +587,7 @@ python evaluation/evaluate_control_multiple_degs_mass.py \
 ### Step 1: Degrade test folder with boom
 ```bash
 python dataset_scripts/degrade_final_chunks.py \
-  --in_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster \
+  --in_json /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster/metadata.jsonl \
   --out_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_boom_degraded \
   --deg_spec boom \
   --output_format hdf5
@@ -640,7 +640,7 @@ python evaluation/evaluate_control_multiple_degs_mass.py \
 ### Step 1: Degrade test folder with clarity
 ```bash
 python dataset_scripts/degrade_final_chunks.py \
-  --in_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster \
+  --in_json /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster/metadata.jsonl \
   --out_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_clarity_degraded \
   --deg_spec clarity \
   --output_format hdf5
@@ -693,7 +693,7 @@ python evaluation/evaluate_control_multiple_degs_mass.py \
 ### Step 1: Degrade test folder with mud
 ```bash
 python dataset_scripts/degrade_final_chunks.py \
-  --in_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster \
+  --in_json /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster/metadata.jsonl \
   --out_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_mud_degraded \
   --deg_spec mud \
   --output_format hdf5
@@ -746,7 +746,7 @@ python evaluation/evaluate_control_multiple_degs_mass.py \
 ### Step 1: Degrade test folder with vocal
 ```bash
 python dataset_scripts/degrade_final_chunks.py \
-  --in_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster \
+  --in_json /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster/metadata.jsonl \
   --out_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_vocal_degraded \
   --deg_spec vocal \
   --output_format hdf5
@@ -799,7 +799,7 @@ python evaluation/evaluate_control_multiple_degs_mass.py \
 ### Step 1: Degrade test folder with comp
 ```bash
 python dataset_scripts/degrade_final_chunks.py \
-  --in_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster \
+  --in_json /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster/metadata.jsonl \
   --out_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_comp_degraded \
   --deg_spec comp \
   --output_format hdf5
@@ -852,7 +852,7 @@ python evaluation/evaluate_control_multiple_degs_mass.py \
 ### Step 1: Degrade test folder with mix
 ```bash
 python dataset_scripts/degrade_final_chunks.py \
-  --in_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster \
+  --in_json /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster/metadata.jsonl \
   --out_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_mix_degraded \
   --deg_spec mix \
   --output_format hdf5
@@ -905,7 +905,7 @@ python evaluation/evaluate_control_multiple_degs_mass.py \
 ### Step 1: Degrade test folder with volume
 ```bash
 python dataset_scripts/degrade_final_chunks.py \
-  --in_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster \
+  --in_json /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster/metadata.jsonl \
   --out_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_volume_degraded \
   --deg_spec volume \
   --output_format hdf5
@@ -958,7 +958,7 @@ python evaluation/evaluate_control_multiple_degs_mass.py \
 ### Step 1: Degrade test folder with stereo
 ```bash
 python dataset_scripts/degrade_final_chunks.py \
-  --in_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster \
+  --in_json /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster/metadata.jsonl \
   --out_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_stereo_degraded \
   --deg_spec stereo \
   --output_format hdf5

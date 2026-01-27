@@ -87,7 +87,7 @@ def main():
 
     for entry in tqdm(jsonl_entries, desc=f"Rank {rank} Encoding", disable=not accelerator.is_main_process):
         try:
-            degraded_path = entry['degraded_path']
+            degraded_path = entry.get('degraded_audio_path') or entry.get('degraded_path')
             waveform = read_wav_file(degraded_path, duration_sec)
             batch_waveforms.append(waveform)
             batch_entries.append(entry)
@@ -100,7 +100,8 @@ def main():
                     latents = latents.transpose(1, 2)  # [B, T, C]
 
                 for ent, latent in zip(batch_entries, latents.cpu()):
-                    basename = os.path.basename(ent['degraded_path'])
+                    degraded_path = ent.get('degraded_audio_path') or ent.get('degraded_path')
+                    basename = os.path.basename(degraded_path)
                     outpath = os.path.join(output_dir, basename.replace(os.path.splitext(basename)[1], ".pt"))
                     torch.save(latent, outpath)
                     ent['degraded_latent_path'] = outpath
@@ -110,7 +111,8 @@ def main():
                 batch_entries.clear()
 
         except Exception as e:
-            print(f"Error processing {entry.get('degraded_path', 'unknown')} on rank {rank}: {e}")
+            degraded_path = entry.get('degraded_audio_path') or entry.get('degraded_path', 'unknown')
+            print(f"Error processing {degraded_path} on rank {rank}: {e}")
 
     accelerator.wait_for_everyone()
     
@@ -122,7 +124,8 @@ def main():
         output_jsonl = os.path.join(output_dir, os.path.basename(input_jsonl))
         with open(output_jsonl, 'w') as f:
             for entry in all_entries:
-                basename = os.path.basename(entry['degraded_path'])
+                degraded_path = entry.get('degraded_audio_path') or entry.get('degraded_path')
+                basename = os.path.basename(degraded_path)
                 latent_path = os.path.join(output_dir, basename.replace(os.path.splitext(basename)[1], ".pt"))
                 entry['degraded_latent_path'] = latent_path
                 f.write(json.dumps(entry) + '\n')
