@@ -19,10 +19,18 @@ Outputs:
 """
 
 import os
+import sys
 import json
 import argparse
 import pandas as pd
+import h5py
+import soundfile as sf
+import tempfile
 from tqdm import tqdm
+
+# Add parent directory to path to import utils
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils import load_audio_as_numpy
 
 try:
     from audiobox_aesthetics.infer import initialize_predictor
@@ -44,6 +52,15 @@ def read_entries_from_jsonl(jsonl_path):
     Returns:
         List of dictionary entries
     """
+    # Fallback to rank0 file if combined file doesn't exist
+    if not os.path.exists(jsonl_path):
+        rank0_path = jsonl_path.replace('evaluation_metadata.jsonl', 'evaluation_metadata_rank0.jsonl')
+        if os.path.exists(rank0_path):
+            print(f"Warning: {jsonl_path} not found, using {rank0_path}")
+            jsonl_path = rank0_path
+        else:
+            raise FileNotFoundError(f"Neither {jsonl_path} nor {rank0_path} found")
+    
     entries = []
     with open(jsonl_path, "r") as f:
         for line in f:
@@ -75,8 +92,8 @@ def evaluate_aesthetics_from_jsonl(jsonl_path, audio_key='restored_path', predic
     entries = read_entries_from_jsonl(jsonl_path)
     
     for entry in tqdm(entries, desc="Processing audio files"):
-        clean_path = entry["clean_path"]
-        degraded_path = entry["degraded_path"]
+        clean_path = entry.get("clean_path") or entry.get("clean_audio_path")
+        degraded_path = entry.get("degraded_path") or entry.get("degraded_audio_path")
         
         if audio_key in entry:
             output_path = entry[audio_key]
@@ -84,20 +101,43 @@ def evaluate_aesthetics_from_jsonl(jsonl_path, audio_key='restored_path', predic
             print(f"Warning: {audio_key} not found in entry, skipping.")
             continue
         
-        if not os.path.exists(clean_path):
-            print(f"Skipping missing file: {clean_path}")
+        # Handle HDF5 dataset paths (format: /path/file.h5::/dataset)
+        clean_file = clean_path.split('::')[0] if '::' in clean_path else clean_path
+        degraded_file = degraded_path.split('::')[0] if '::' in degraded_path else degraded_path
+        output_file = output_path.split('::')[0] if '::' in output_path else output_path
+        
+        if not os.path.exists(clean_file):
+            print(f"Skipping missing file: {clean_file}")
             continue
-        if not os.path.exists(degraded_path):
-            print(f"Skipping missing file: {degraded_path}")
+        if not os.path.exists(degraded_file):
+            print(f"Skipping missing file: {degraded_file}")
             continue
-        if not os.path.exists(output_path):
-            print(f"Skipping missing file: {output_path}")
+        if not os.path.exists(output_file):
+            print(f"Skipping missing file: {output_file}")
             continue
         
         try:
-            clean_result = predictor.forward([{"path": clean_path}])[0]
-            degraded_result = predictor.forward([{"path": degraded_path}])[0]
-            output_result = predictor.forward([{"path": output_path}])[0]
+            # Load audio from HDF5 or regular files
+            clean_audio, _ = load_audio_as_numpy(clean_path)
+            degraded_audio, _ = load_audio_as_numpy(degraded_path)
+            output_audio, _ = load_audio_as_numpy(output_path)
+            
+            # Create temporary WAV files for predictor
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as clean_tmp, \
+                 tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as degraded_tmp, \
+                 tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as output_tmp:
+                
+                sf.write(clean_tmp.name, clean_audio, 44100)
+                sf.write(degraded_tmp.name, degraded_audio, 44100)
+                sf.write(output_tmp.name, output_audio, 44100)
+                
+                clean_result = predictor.forward([{"path": clean_tmp.name}])[0]
+                degraded_result = predictor.forward([{"path": degraded_tmp.name}])[0]
+                output_result = predictor.forward([{"path": output_tmp.name}])[0]
+                
+                os.unlink(clean_tmp.name)
+                os.unlink(degraded_tmp.name)
+                os.unlink(output_tmp.name)
             
             clean_scores.append(clean_result)
             degraded_scores.append(degraded_result)

@@ -80,6 +80,70 @@ def pad_wav(waveform, segment_length):
         return waveform
 
 
+def load_audio_as_numpy(path, target_sr=44100, mono=True):
+    """Load audio from file path as numpy array, supporting HDF5 dataset references.
+    
+    This function returns numpy arrays suitable for analysis and evaluation.
+    For training/inference with torch tensors, use read_wav_file instead.
+    
+    Args:
+        path: File path, can be HDF5 with dataset reference (e.g., /path/file.h5::/dataset)
+        target_sr: Target sample rate (default: 44100 Hz)
+        mono: If True, convert to mono by averaging channels (default: True)
+        
+    Returns:
+        Tuple of (audio_array, sample_rate) as numpy arrays
+    """
+    # Check if this is an HDF5 dataset reference
+    if '::' in path and ('.h5' in path or '.hdf5' in path):
+        file_path, dataset_path = path.split('::', 1)
+        # Remove leading slash from dataset path if present
+        dataset_path = dataset_path.lstrip('/')
+        try:
+            with h5py.File(file_path, 'r') as f:
+                item = f[dataset_path]
+                # Check if it's a group containing an 'audio' dataset
+                if isinstance(item, h5py.Group):
+                    if 'audio' in item:
+                        audio_data = item['audio'][:]
+                    else:
+                        raise ValueError(f"Group '{dataset_path}' does not contain 'audio' dataset. Available keys: {list(item.keys())}")
+                else:
+                    audio_data = item[:]
+        except Exception as e:
+            raise ValueError(f"Failed to load HDF5 dataset. File: {file_path}, Dataset: {dataset_path}, Error: {e}")
+        
+        # HDF5 audio is typically stored as (samples,) or (channels, samples) or (samples, channels)
+        if audio_data.ndim == 1:
+            audio_array = audio_data
+        elif audio_data.shape[0] == 2:  # (2, samples) - stereo
+            audio_array = audio_data.mean(axis=0) if mono else audio_data
+        elif audio_data.shape[1] == 2:  # (samples, 2) - stereo
+            audio_array = audio_data.mean(axis=1) if mono else audio_data
+        else:
+            # Unknown format, take first channel if multi-channel
+            audio_array = audio_data[:, 0] if audio_data.shape[1] < audio_data.shape[0] else audio_data[0, :]
+        return audio_array.astype(np.float32), 44100
+    else:
+        # Use existing read_wav_file function for regular files and simple HDF5
+        # It returns torch tensors with shape (channels, samples)
+        waveform = read_wav_file(path, duration_sec=30)
+        
+        # Convert torch tensor to numpy
+        if isinstance(waveform, torch.Tensor):
+            waveform_np = waveform.numpy()
+            if mono and waveform_np.shape[0] == 2:  # Stereo to mono
+                audio_array = waveform_np.mean(axis=0)
+            elif mono:
+                audio_array = waveform_np[0]
+            else:
+                audio_array = waveform_np
+        else:
+            audio_array = waveform
+        
+        return audio_array.astype(np.float32), 44100
+
+
 def read_wav_file(filename, duration_sec):
     ext = os.path.splitext(filename)[1].lower()
     

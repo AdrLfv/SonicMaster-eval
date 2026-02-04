@@ -73,47 +73,47 @@ sbatch run_restoration.sh xband "Restore the full-spectrum balance and undo the 
 # Evaluation Commands for Restored Audio (No Prompt)
 
 ```bash
-sbatch run_evaluate.sh airy restored
-sbatch run_evaluate.sh big restored
-sbatch run_evaluate.sh boom restored
-sbatch run_evaluate.sh bright restored
-sbatch run_evaluate.sh clarity restored
-sbatch run_evaluate.sh clip restored
-sbatch run_evaluate.sh comp restored
-sbatch run_evaluate.sh dark restored
-sbatch run_evaluate.sh mic restored
-sbatch run_evaluate.sh mix restored
-sbatch run_evaluate.sh mud restored
-sbatch run_evaluate.sh punch restored
-sbatch run_evaluate.sh real restored
-sbatch run_evaluate.sh small restored
-sbatch run_evaluate.sh stereo restored
-sbatch run_evaluate.sh vocal restored
-sbatch run_evaluate.sh volume restored
-sbatch run_evaluate.sh warm restored
-sbatch run_evaluate.sh xband restored
+sbatch run_evaluate_aae.sh airy restored
+sbatch run_evaluate_aae.sh big restored
+sbatch run_evaluate_aae.sh boom restored
+sbatch run_evaluate_aae.sh bright restored
+sbatch run_evaluate_aae.sh clarity restored
+sbatch run_evaluate_aae.sh clip restored
+sbatch run_evaluate_aae.sh comp restored
+sbatch run_evaluate_aae.sh dark restored
+sbatch run_evaluate_aae.sh mic restored
+sbatch run_evaluate_aae.sh mix restored
+sbatch run_evaluate_aae.sh mud restored
+sbatch run_evaluate_aae.sh punch restored
+sbatch run_evaluate_aae.sh real restored
+sbatch run_evaluate_aae.sh small restored
+sbatch run_evaluate_aae.sh stereo restored
+sbatch run_evaluate_aae.sh vocal restored
+sbatch run_evaluate_aae.sh volume restored
+sbatch run_evaluate_aae.sh warm restored
+sbatch run_evaluate_aae.sh xband restored
 ```
 
 # Evaluation Commands for Restored Audio (With Prompt)
 
 ```bash
-sbatch run_evaluate.sh airy restored_prompt
-sbatch run_evaluate.sh big restored_prompt
-sbatch run_evaluate.sh boom restored_prompt
-sbatch run_evaluate.sh bright restored_prompt
-sbatch run_evaluate.sh clarity restored_prompt
-sbatch run_evaluate.sh clip restored_prompt
-sbatch run_evaluate.sh comp restored_prompt
-sbatch run_evaluate.sh dark restored_prompt
-sbatch run_evaluate.sh mic restored_prompt
-sbatch run_evaluate.sh mix restored_prompt
-sbatch run_evaluate.sh mud restored_prompt
-sbatch run_evaluate.sh punch restored_prompt
-sbatch run_evaluate.sh real restored_prompt
-sbatch run_evaluate.sh small restored_prompt
-sbatch run_evaluate.sh stereo restored_prompt
-sbatch run_evaluate.sh vocal restored_prompt
-sbatch run_evaluate.sh volume restored_prompt
-sbatch run_evaluate.sh warm restored_prompt
-sbatch run_evaluate.sh xband restored_prompt
+sbatch run_evaluate_aae.sh airy restored_prompt
+sbatch run_evaluate_aae.sh big restored_prompt
+sbatch run_evaluate_aae.sh boom restored_prompt
+sbatch run_evaluate_aae.sh bright restored_prompt
+sbatch run_evaluate_aae.sh clarity restored_prompt
+sbatch run_evaluate_aae.sh clip restored_prompt
+sbatch run_evaluate_aae.sh comp restored_prompt
+sbatch run_evaluate_aae.sh dark restored_prompt
+sbatch run_evaluate_aae.sh mic restored_prompt
+sbatch run_evaluate_aae.sh mix restored_prompt
+sbatch run_evaluate_aae.sh mud restored_prompt
+sbatch run_evaluate_aae.sh punch restored_prompt
+sbatch run_evaluate_aae.sh real restored_prompt
+sbatch run_evaluate_aae.sh small restored_prompt
+sbatch run_evaluate_aae.sh stereo restored_prompt
+sbatch run_evaluate_aae.sh vocal restored_prompt
+sbatch run_evaluate_aae.sh volume restored_prompt
+sbatch run_evaluate_aae.sh warm restored_prompt
+sbatch run_evaluate_aae.sh xband restored_prompt
 ```

@@ -25,25 +25,25 @@ sbatch run_reconstruction.sh xband
 # Evaluation Commands for Reconstructed Audio
 
 ```bash
-sbatch run_evaluate.sh airy reconstructed
-sbatch run_evaluate.sh big reconstructed
-sbatch run_evaluate.sh boom reconstructed
-sbatch run_evaluate.sh bright reconstructed
-sbatch run_evaluate.sh clarity reconstructed
-sbatch run_evaluate.sh clip reconstructed
-sbatch run_evaluate.sh comp reconstructed
-sbatch run_evaluate.sh dark reconstructed
-sbatch run_evaluate.sh mic reconstructed
-sbatch run_evaluate.sh mix reconstructed
-sbatch run_evaluate.sh mud reconstructed
-sbatch run_evaluate.sh punch reconstructed
-sbatch run_evaluate.sh real reconstructed
-sbatch run_evaluate.sh small reconstructed
-sbatch run_evaluate.sh stereo reconstructed
-sbatch run_evaluate.sh vocal reconstructed
-sbatch run_evaluate.sh volume reconstructed
-sbatch run_evaluate.sh warm reconstructed
-sbatch run_evaluate.sh xband reconstructed
+sbatch run_evaluate_aae.sh airy reconstructed
+sbatch run_evaluate_aae.sh big reconstructed
+sbatch run_evaluate_aae.sh boom reconstructed
+sbatch run_evaluate_aae.sh bright reconstructed
+sbatch run_evaluate_aae.sh clarity reconstructed
+sbatch run_evaluate_aae.sh clip reconstructed
+sbatch run_evaluate_aae.sh comp reconstructed
+sbatch run_evaluate_aae.sh dark reconstructed
+sbatch run_evaluate_aae.sh mic reconstructed
+sbatch run_evaluate_aae.sh mix reconstructed
+sbatch run_evaluate_aae.sh mud reconstructed
+sbatch run_evaluate_aae.sh punch reconstructed
+sbatch run_evaluate_aae.sh real reconstructed
+sbatch run_evaluate_aae.sh small reconstructed
+sbatch run_evaluate_aae.sh stereo reconstructed
+sbatch run_evaluate_aae.sh vocal reconstructed
+sbatch run_evaluate_aae.sh volume reconstructed
+sbatch run_evaluate_aae.sh warm reconstructed
+sbatch run_evaluate_aae.sh xband reconstructed
 ```
 
 

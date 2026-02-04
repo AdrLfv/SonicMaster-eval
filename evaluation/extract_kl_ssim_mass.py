@@ -21,32 +21,44 @@ Outputs:
 """
 
 import os
+import sys
 import json
 import argparse
 import numpy as np
 import librosa
+import h5py
+from scipy.special import kl_div
 from tqdm import tqdm
 from skimage.metrics import structural_similarity as ssim
 import pandas as pd
+
+# Add parent directory to path to import utils
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils import load_audio_as_numpy
 
 def get_log_mel(path, sr=44100, n_fft=2048, hop_length=512, n_mels=128):
     """Extract log-mel spectrogram from audio file.
     
     A mel-spectrogram is a time-frequency representation of audio that mimics
-    human perception of frequency (mel scale). It's like a visual representation
-    of how the audio sounds over time.
+    human perception of sound. It:
+        1. Converts audio to frequency domain (STFT)
+        2. Maps frequencies to mel scale (mimics human hearing)
+        3. Takes logarithm (mimics human loudness perception)
+    
+    This representation is useful for comparing audio quality because it
+    emphasizes perceptually important differences.
     
     Args:
         path: Path to audio file
         sr: Sample rate (default: 44100 Hz)
         n_fft: FFT window size (default: 2048)
         hop_length: Number of samples between frames (default: 512)
-        n_mels: Number of mel frequency bins (default: 128)
+        n_mels: Number of mel bands (default: 128)
     
     Returns:
         Log-mel spectrogram in dB scale (shape: n_mels x time_frames)
     """
-    y, _ = librosa.load(path, sr=sr)
+    y, _ = load_audio_as_numpy(path)
     mel = librosa.feature.melspectrogram(
         y=y, sr=sr, n_fft=n_fft,
         hop_length=hop_length, n_mels=n_mels
@@ -125,6 +137,15 @@ def read_entries_from_jsonl(jsonl_path):
     Returns:
         List of dictionary entries
     """
+    # Fallback to rank0 file if combined file doesn't exist
+    if not os.path.exists(jsonl_path):
+        rank0_path = jsonl_path.replace('evaluation_metadata.jsonl', 'evaluation_metadata_rank0.jsonl')
+        if os.path.exists(rank0_path):
+            print(f"Warning: {jsonl_path} not found, using {rank0_path}")
+            jsonl_path = rank0_path
+        else:
+            raise FileNotFoundError(f"Neither {jsonl_path} nor {rank0_path} found")
+    
     entries = []
     with open(jsonl_path, "r") as f:
         for line in f:
@@ -159,8 +180,8 @@ def evaluate_from_jsonl(jsonl_path, audio_key='restored_path', out_dir=None):
     entries = read_entries_from_jsonl(jsonl_path)
 
     for entry in tqdm(entries, desc="Processing entries"):
-        clean_path = entry["clean_path"]
-        degraded_path = entry["degraded_path"]
+        clean_path = entry.get("clean_path") or entry.get("clean_audio_path")
+        degraded_path = entry.get("degraded_path") or entry.get("degraded_audio_path")
         
         if audio_key in entry:
             output_path = entry[audio_key]
@@ -168,14 +189,19 @@ def evaluate_from_jsonl(jsonl_path, audio_key='restored_path', out_dir=None):
             print(f"Warning: {audio_key} not found in entry, skipping.")
             continue
 
-        if not os.path.exists(clean_path):
-            print(f"Skipping missing file: {clean_path}")
+        # Handle HDF5 dataset paths (format: /path/file.h5::/dataset)
+        clean_file = clean_path.split('::')[0] if '::' in clean_path else clean_path
+        degraded_file = degraded_path.split('::')[0] if '::' in degraded_path else degraded_path
+        output_file = output_path.split('::')[0] if '::' in output_path else output_path
+
+        if not os.path.exists(clean_file):
+            print(f"Skipping missing file: {clean_file}")
             continue
-        if not os.path.exists(degraded_path):
-            print(f"Skipping missing file: {degraded_path}")
+        if not os.path.exists(degraded_file):
+            print(f"Skipping missing file: {degraded_file}")
             continue
-        if not os.path.exists(output_path):
-            print(f"Skipping missing file: {output_path}")
+        if not os.path.exists(output_file):
+            print(f"Skipping missing file: {output_file}")
             continue
 
         try:

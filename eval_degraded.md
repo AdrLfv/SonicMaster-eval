@@ -32,23 +32,23 @@ sbatch run_degrade.sh xband
 ```
 
 ```bash
-sbatch run_evaluate.sh airy
-sbatch run_evaluate.sh big
-sbatch run_evaluate.sh boom
-sbatch run_evaluate.sh bright
-sbatch run_evaluate.sh clarity
-sbatch run_evaluate.sh clip
-sbatch run_evaluate.sh comp
-sbatch run_evaluate.sh dark
-sbatch run_evaluate.sh mic
-sbatch run_evaluate.sh mix
-sbatch run_evaluate.sh mud
-sbatch run_evaluate.sh punch
-sbatch run_evaluate.sh real
-sbatch run_evaluate.sh small
-sbatch run_evaluate.sh stereo
-sbatch run_evaluate.sh vocal
-sbatch run_evaluate.sh volume
-sbatch run_evaluate.sh warm
-sbatch run_evaluate.sh xband
+sbatch run_evaluate_aae.sh airy
+sbatch run_evaluate_aae.sh big
+sbatch run_evaluate_aae.sh boom
+sbatch run_evaluate_aae.sh bright
+sbatch run_evaluate_aae.sh clarity
+sbatch run_evaluate_aae.sh clip
+sbatch run_evaluate_aae.sh comp
+sbatch run_evaluate_aae.sh dark
+sbatch run_evaluate_aae.sh mic
+sbatch run_evaluate_aae.sh mix
+sbatch run_evaluate_aae.sh mud
+sbatch run_evaluate_aae.sh punch
+sbatch run_evaluate_aae.sh real
+sbatch run_evaluate_aae.sh small
+sbatch run_evaluate_aae.sh stereo
+sbatch run_evaluate_aae.sh vocal
+sbatch run_evaluate_aae.sh volume
+sbatch run_evaluate_aae.sh warm
+sbatch run_evaluate_aae.sh xband
 ```

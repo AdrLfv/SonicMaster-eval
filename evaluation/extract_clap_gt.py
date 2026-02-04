@@ -16,6 +16,7 @@ Outputs:
 """
 
 import os
+import sys
 import json
 import argparse
 import numpy as np
@@ -23,7 +24,13 @@ import pandas as pd
 from tqdm import tqdm
 import soundfile as sf
 import librosa
+import h5py
+import tempfile
 from laion_clap import CLAP_Module
+
+# Add parent directory to path to import utils
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils import load_audio_as_numpy
 
 def load_mono_audio(path, target_sr=44100):
     """Load audio file and convert to mono at target sample rate.
@@ -56,6 +63,15 @@ def read_entries_from_jsonl(jsonl_path):
     Returns:
         List of dictionary entries
     """
+    # Fallback to rank0 file if combined file doesn't exist
+    if not os.path.exists(jsonl_path):
+        rank0_path = jsonl_path.replace('evaluation_metadata.jsonl', 'evaluation_metadata_rank0.jsonl')
+        if os.path.exists(rank0_path):
+            print(f"Warning: {jsonl_path} not found, using {rank0_path}")
+            jsonl_path = rank0_path
+        else:
+            raise FileNotFoundError(f"Neither {jsonl_path} nor {rank0_path} found")
+    
     entries = []
     with open(jsonl_path, "r") as f:
         for line in f:
@@ -85,8 +101,8 @@ def extract_embeddings_from_jsonl(model, entries, audio_key='restored_path'):
     file_ids = []
     
     for entry in tqdm(entries, desc="Extracting embeddings"):
-        clean_path = entry["clean_path"]
-        degraded_path = entry["degraded_path"]
+        clean_path = entry.get("clean_path") or entry.get("clean_audio_path")
+        degraded_path = entry.get("degraded_path") or entry.get("degraded_audio_path")
         
         if audio_key in entry:
             output_path = entry[audio_key]
@@ -94,25 +110,49 @@ def extract_embeddings_from_jsonl(model, entries, audio_key='restored_path'):
             print(f"Warning: {audio_key} not found in entry, skipping.")
             continue
         
-        if not os.path.exists(clean_path):
-            print(f"Warning: file {clean_path} not found, skipping.")
+        # Handle HDF5 dataset paths (format: /path/file.h5::/dataset)
+        clean_file = clean_path.split('::')[0] if '::' in clean_path else clean_path
+        degraded_file = degraded_path.split('::')[0] if '::' in degraded_path else degraded_path
+        output_file = output_path.split('::')[0] if '::' in output_path else output_path
+        
+        if not os.path.exists(clean_file):
+            print(f"Warning: file {clean_file} not found, skipping.")
             continue
-        if not os.path.exists(degraded_path):
-            print(f"Warning: file {degraded_path} not found, skipping.")
+        if not os.path.exists(degraded_file):
+            print(f"Warning: file {degraded_file} not found, skipping.")
             continue
-        if not os.path.exists(output_path):
-            print(f"Warning: file {output_path} not found, skipping.")
+        if not os.path.exists(output_file):
+            print(f"Warning: file {output_file} not found, skipping.")
             continue
         
         try:
-            clean_emb = model.get_audio_embedding_from_filelist([clean_path], use_tensor=False)
-            degraded_emb = model.get_audio_embedding_from_filelist([degraded_path], use_tensor=False)
-            output_emb = model.get_audio_embedding_from_filelist([output_path], use_tensor=False)
+            # Load audio from HDF5 or regular files
+            clean_audio, clean_sr = load_audio_as_numpy(clean_path, target_sr=48000)
+            degraded_audio, degraded_sr = load_audio_as_numpy(degraded_path, target_sr=48000)
+            output_audio, output_sr = load_audio_as_numpy(output_path, target_sr=48000)
+            
+            # Create temporary WAV files for CLAP
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as clean_tmp, \
+                 tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as degraded_tmp, \
+                 tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as output_tmp:
+                
+                sf.write(clean_tmp.name, clean_audio, 48000)
+                sf.write(degraded_tmp.name, degraded_audio, 48000)
+                sf.write(output_tmp.name, output_audio, 48000)
+                
+                clean_emb = model.get_audio_embedding_from_filelist([clean_tmp.name], use_tensor=False)
+                degraded_emb = model.get_audio_embedding_from_filelist([degraded_tmp.name], use_tensor=False)
+                output_emb = model.get_audio_embedding_from_filelist([output_tmp.name], use_tensor=False)
+                
+                # Clean up temporary files
+                os.unlink(clean_tmp.name)
+                os.unlink(degraded_tmp.name)
+                os.unlink(output_tmp.name)
             
             clean_embeddings.append(clean_emb[0])
             degraded_embeddings.append(degraded_emb[0])
             output_embeddings.append(output_emb[0])
-            file_ids.append(os.path.splitext(os.path.basename(clean_path))[0])
+            file_ids.append(os.path.splitext(os.path.basename(clean_path.split('::')[0]))[0])
         except Exception as e:
             print(f"Error processing entry: {e}")
             continue
