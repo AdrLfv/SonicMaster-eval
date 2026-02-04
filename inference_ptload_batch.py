@@ -203,12 +203,19 @@ def main():
     # Get the datasets
     data_files = {}
 
-    if config["paths"]["infer_file"] != "":
-        data_files["infer"] = config["paths"]["infer_file"]
+    if jsonfile != "":
+        data_files["infer"] = jsonfile
 
     from datasets import Dataset, DatasetDict
-    with open(config["paths"]["infer_file"], 'r') as f:
+    with open(jsonfile, 'r') as f:
         jsonl_data = [json.loads(line) for line in f]
+    
+    # Convert nested structures to strings for PyArrow compatibility
+    for entry in jsonl_data:
+        for key, value in entry.items():
+            if isinstance(value, (list, dict)):
+                entry[key] = json.dumps(value)
+    
     infer_dataset = Dataset.from_dict({k: [d[k] for d in jsonl_data] for k in jsonl_data[0].keys()})
     raw_datasets = DatasetDict({"infer": infer_dataset})
     text_column, alt_text_column, audio_column, deg_audio_column = args.text_column, args.alt_text_column, args.audio_column, args.deg_audio_column
@@ -326,6 +333,10 @@ def main():
     eval_jsonl_path = os.path.join(inference_output_dir, f"evaluation_metadata_rank{rank}.jsonl")
     eval_jsonl_file = open(eval_jsonl_path, "w", encoding="utf-8")
     
+    # Create overall progress bar
+    total_batches = len(infer_dataloader)
+    pbar = tqdm(total=total_batches, desc=f"Rank {rank} Restoring", disable=(rank != 0))
+    
     for step, batch in enumerate(infer_dataloader):
         # inference_batch = next(iter(infer_dataloader))
         # with accelerator.accumulate(model) and torch.no_grad():
@@ -353,7 +364,7 @@ def main():
                 guidance_scale=1,
                 duration=duration,
                 seed=0,
-                disable_progress=False,
+                disable_progress=True,
                 num_samples_per_prompt=1,
                 callback_on_step_end=None,
                 solver="Euler", #Euler or rk4
@@ -390,21 +401,26 @@ def main():
                     "inference_time_seconds": batch_time / len(wave_list[0])  # Time per audio in batch
                 })
                 eval_jsonl_file.write(json.dumps(eval_entry) + "\n")
+            
+            # Update progress bar after each batch
+            pbar.update(1)
     
+    pbar.close()
     eval_jsonl_file.close()
     print(f"\n✅ Rank {rank}: Evaluation metadata saved to: {eval_jsonl_path}")
     
     if world_size > 1:
         torch.distributed.barrier()
-        if rank == 0:
-            combined_jsonl = os.path.join(inference_output_dir, "evaluation_metadata.jsonl")
-            with open(combined_jsonl, "w") as outf:
-                for r in range(world_size):
-                    rank_file = os.path.join(inference_output_dir, f"evaluation_metadata_rank{r}.jsonl")
-                    if os.path.exists(rank_file):
-                        with open(rank_file, "r") as inf:
-                            outf.write(inf.read())
-            print(f"\n✅ Combined evaluation metadata saved to: {combined_jsonl}")
+    
+    if rank == 0:
+        combined_jsonl = os.path.join(inference_output_dir, "evaluation_metadata.jsonl")
+        with open(combined_jsonl, "w") as outf:
+            for r in range(world_size):
+                rank_file = os.path.join(inference_output_dir, f"evaluation_metadata_rank{r}.jsonl")
+                if os.path.exists(rank_file):
+                    with open(rank_file, "r") as inf:
+                        outf.write(inf.read())
+        print(f"\n✅ Combined evaluation metadata saved to: {combined_jsonl}")
 
     # if accelerator.is_main_process:
 

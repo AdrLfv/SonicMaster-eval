@@ -4,6 +4,7 @@
 import json
 import os
 import argparse
+import logging
 from tqdm import tqdm
 import soundfile as sf
 import numpy as np
@@ -15,6 +16,8 @@ import h5py
 
 import csv
 import pandas as pd
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
 metrics_by_degradation = defaultdict(list)
@@ -283,7 +286,7 @@ def compute_improvement(clean, degraded, output):
 
 
 # === SAMPLE EVALUATION ===
-def evaluate_sample(clean, degraded, output, degradations, clean_stereo, degraded_stereo, output_stereo):
+def evaluate_sample(clean, degraded, output, degradations, clean_stereo, degraded_stereo, output_stereo, sample_idx=0):
     results = {}
 
     
@@ -412,7 +415,13 @@ def evaluate_sample(clean, degraded, output, degradations, clean_stereo, degrade
             sf_degr = spectral_flatness(degraded, sr)
             sf_out  = spectral_flatness(output, sr)
 
-
+            # Debug logging for first sample
+            if sample_idx == 0:
+                logging.info(f"[DEBUG CLIP] Clean audio: min={clean.min():.6f}, max={clean.max():.6f}, mean={clean.mean():.6f}")
+                logging.info(f"[DEBUG CLIP] Degraded audio: min={degraded.min():.6f}, max={degraded.max():.6f}, mean={degraded.mean():.6f}")
+                logging.info(f"[DEBUG CLIP] Output audio: min={output.min():.6f}, max={output.max():.6f}, mean={output.mean():.6f}")
+                logging.info(f"[DEBUG CLIP] Spectral flatness - clean: {sf_clean:.6f}, degraded: {sf_degr:.6f}, output: {sf_out:.6f}")
+                logging.info(f"[DEBUG CLIP] abs_error_before (x1000): {abs(sf_clean - sf_degr) * 1000:.6f}")
 
             stats = compute_improvement(sf_clean, sf_degr, sf_out)
 
@@ -538,6 +547,15 @@ def summarize_metrics(metrics_by_degradation):
 
 # === MAIN PROCESSING LOOP ===
 def process_jsonl(jsonl_path, output_dir, audio_key='restored_path'):
+    # Fallback to rank0 file if combined file doesn't exist
+    if not os.path.exists(jsonl_path):
+        rank0_path = jsonl_path.replace("evaluation_metadata.jsonl", "evaluation_metadata_rank0.jsonl")
+        if os.path.exists(rank0_path):
+            print(f"⚠️  Combined file not found, using rank0 file: {rank0_path}")
+            jsonl_path = rank0_path
+        else:
+            raise FileNotFoundError(f"Neither {jsonl_path} nor {rank0_path} found")
+    
     print(f"\n📂 Reading JSONL: {jsonl_path}")
     print(f"📁 Output directory: {output_dir if output_dir else 'Using paths from JSONL'}")
     print(f"🔑 Audio key: {audio_key}")
@@ -638,7 +656,7 @@ def process_jsonl(jsonl_path, output_dir, audio_key='restored_path'):
                 print(f"\n❌ Failed to load audio for {file_id}: {e}")
                 continue
 
-            result = evaluate_sample(clean, degraded, output, degradations, clean_stereo, degraded_stereo, output_stereo)
+            result = evaluate_sample(clean, degraded, output, degradations, clean_stereo, degraded_stereo, output_stereo, sample_idx=i)
 
             for degradation, metrics in result.items():
                 metrics_by_degradation[degradation].append(metrics)

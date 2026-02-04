@@ -50,7 +50,7 @@ def read_audio_file(filename, duration_sec, target_sr=44100):
     
     elif ext in ['.h5', '.hdf5']:
         with h5py.File(filename, 'r') as f:
-            waveform = torch.from_numpy(f['audio'][:])
+            waveform = torch.from_numpy(f['audio'][:]).float()
             
             if waveform.dim() == 2 and waveform.shape[1] == 2 and waveform.shape[0] > 2:
                 waveform = waveform.T

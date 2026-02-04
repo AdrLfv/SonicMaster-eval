@@ -24,18 +24,43 @@ else
   pip install -r requirements_sonic.txt
 fi
 
-# Get degradation type from command line argument
+# Get degradation type and optional evaluation type from command line arguments
 DEGRADATION=$1
+EVAL_TYPE=${2:-degraded}
 
 if [ -z "$DEGRADATION" ]; then
   echo "Error: No degradation type specified"
-  echo "Usage: sbatch run_evaluate.sh <degradation_type>"
+  echo "Usage: sbatch run_evaluate.sh <degradation_type> [eval_type]"
+  echo "  eval_type: degraded (default), reconstructed, restored, restored_prompt"
   exit 1
 fi
 
 echo "Running evaluation for degradation: $DEGRADATION"
+echo "Evaluation type: $EVAL_TYPE"
+
+# Determine input JSONL, output CSV, and audio key based on eval_type
+if [ "$EVAL_TYPE" = "reconstructed" ]; then
+  INPUT_JSONL="/work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_${DEGRADATION}_reconstructed/reconstructed_degradation_pairs.jsonl"
+  OUTPUT_CSV="/work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_${DEGRADATION}_reconstructed/metrics_reconstructed_baseline.xlsx"
+  AUDIO_KEY="reconstructed_path"
+elif [ "$EVAL_TYPE" = "restored" ]; then
+  INPUT_JSONL="/work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_${DEGRADATION}_restored/evaluation_metadata.jsonl"
+  OUTPUT_CSV="/work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_${DEGRADATION}_restored/metrics_restored_baseline.xlsx"
+  AUDIO_KEY="restored_path"
+elif [ "$EVAL_TYPE" = "restored_prompt" ]; then
+  INPUT_JSONL="/work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_${DEGRADATION}_restored_prompt/evaluation_metadata.jsonl"
+  OUTPUT_CSV="/work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_${DEGRADATION}_restored_prompt/metrics_restored_prompt_baseline.xlsx"
+  AUDIO_KEY="restored_path"
+else
+  INPUT_JSONL="/work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_${DEGRADATION}_degraded/degradation_pairs.jsonl"
+  OUTPUT_CSV="/work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_${DEGRADATION}_degraded/metrics_degraded_baseline.xlsx"
+  AUDIO_KEY="degraded_audio_path"
+fi
+
+echo "Input JSONL: $INPUT_JSONL"
+echo "Output CSV: $OUTPUT_CSV"
 
 python evaluation/evaluate_control_multiple_degs_mass.py \
-  --jsonref /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_${DEGRADATION}_degraded/degradation_pairs.jsonl \
-  --audio_key degraded_audio_path \
-  --output_csv /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_${DEGRADATION}_degraded/metrics_degraded_baseline.xlsx
+  --jsonref "$INPUT_JSONL" \
+  --audio_key "$AUDIO_KEY" \
+  --output_csv "$OUTPUT_CSV"
