@@ -48,6 +48,8 @@ def main(fileindex=None):
                         help='Degradation specification (e.g., punch, clip, comp, bright, etc.)')
     parser.add_argument('--output_format', type=str, default='flac', choices=['flac', 'wav', 'hdf5'],
                         help='Output audio format (default: flac)')
+    parser.add_argument('--max_samples', type=int, default=None,
+                        help='Maximum number of samples to process (default: None, process all)')
     args = parser.parse_args()
     
     timestart=time()
@@ -72,6 +74,14 @@ def main(fileindex=None):
         audio_files = [entry['clean_audio_path'] for entry in input_entries]
         logging.info(f"Input mode: JSONL ({in_jsonl})")
         logging.info(f"Loaded {len(input_entries)} entries from JSONL")
+    
+    # Apply max_samples limit if specified
+    if args.max_samples is not None and args.max_samples > 0:
+        original_count = len(audio_files)
+        audio_files = audio_files[:args.max_samples]
+        if input_entries is not None:
+            input_entries = input_entries[:args.max_samples]
+        logging.info(f"Limiting processing to {len(audio_files)} samples (out of {original_count} total)")
 
     mic_ir_folder='configs/smallpoli/irs'
     rir_folder='configs/realrirs'
