@@ -35,6 +35,72 @@ import argparse
 import pyroomacoustics as pra
 
 
+def save_shard(out_folder, shard_idx, shard_data, outfile, fs, deg_spec_selected):
+    import logging
+    if not shard_data:
+        return []
+    
+    shard_path = os.path.join(out_folder, f"shard_{shard_idx:04d}.h5")
+    logging.info(f"Saving shard {shard_idx} with {len(shard_data)} samples to {shard_path}")
+    
+    metadata_entries = []
+    with h5py.File(shard_path, 'w') as f:
+        for idx, (audio, original_id, ver_index, degrad_tracking, hc, prompt_tgt, alt_prompt_tgt, inpath, orig_audio, original_entry) in enumerate(shard_data):
+            dataset_key = f"sample_{idx:05d}_{original_id}_deg{ver_index+1}"
+            grp = f.create_group(dataset_key)
+            grp.create_dataset('audio', data=audio, compression='gzip', compression_opts=4)
+            
+            # Create the degraded audio path in HDF5 format
+            degraded_audio_path = f"{shard_path}::/{dataset_key}"
+            
+            # Start with initial information from input JSONL if available
+            if original_entry:
+                degraded_entry = dict(original_entry)
+                if "source_id" not in degraded_entry:
+                    degraded_entry["source_id"] = original_id
+                if "clean_audio_path" not in degraded_entry:
+                    degraded_entry["clean_audio_path"] = inpath
+                if "duration" not in degraded_entry:
+                    degraded_entry["duration"] = len(orig_audio[0]) / fs
+            else:
+                degraded_entry = {
+                    "source_id": original_id,
+                    "clean_audio_path": inpath,
+                    "duration": len(orig_audio[0]) / fs
+                }
+            
+            # Update fields that are modified by degradation
+            degraded_entry.update({
+                "id": f"{original_id}_{deg_spec_selected}",
+                "degraded_audio_path": degraded_audio_path,
+                "degraded_audio_dataset": dataset_key,
+                "degraded_audio_shard": shard_path,
+                "prompt": prompt_tgt,
+                "alt_prompt": alt_prompt_tgt,
+                "degradation_tracking": degrad_tracking,
+                "hidden_clipping": hc
+            })
+            
+            # Store metadata as HDF5 attributes
+            for key, value in degraded_entry.items():
+                if value is None:
+                    continue
+                if isinstance(value, (list, dict)):
+                    grp.attrs[key] = json.dumps(value)
+                else:
+                    grp.attrs[key] = value
+            
+            metadata_entries.append(degraded_entry)
+    
+    # Write metadata to JSONL if outfile is provided and open
+    if outfile and not outfile.closed:
+        for degraded_entry in metadata_entries:
+            json.dump(degraded_entry, outfile)
+            outfile.write("\n")
+    
+    return metadata_entries
+
+
 def main(fileindex=None):
     import logging
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -50,6 +116,12 @@ def main(fileindex=None):
                         help='Output audio format (default: flac)')
     parser.add_argument('--max_samples', type=int, default=None,
                         help='Maximum number of samples to process (default: None, process all)')
+    parser.add_argument('--use_shards', action='store_true',
+                        help='Save degraded audio in HDF5 shards instead of individual files')
+    parser.add_argument('--shard_size', type=int, default=1000,
+                        help='Number of samples per shard when using --use_shards (default: 1000)')
+    parser.add_argument('--resume', action='store_true',
+                        help='Resume from existing output (validates and continues from last valid entry)')
     args = parser.parse_args()
     
     timestart=time()
@@ -60,6 +132,69 @@ def main(fileindex=None):
     out_folder = args.out_folder
     deg_spec_selected = args.deg_spec
     out_json = os.path.join(out_folder, 'degradation_pairs.jsonl')
+    
+    # Sharding variables
+    current_shard_idx = 0
+    current_shard_data = []
+    shard_size = args.shard_size if args.use_shards else None
+    skip_count = 0
+    
+    # Resume mechanism: check for existing output
+    if args.resume and os.path.exists(out_json):
+        logging.info(f"Found existing output file: {out_json}")
+        
+        # Read existing JSONL and validate
+        with open(out_json, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        
+        if lines:
+            # Check if last line is complete JSON
+            try:
+                json.loads(lines[-1])
+                logging.info(f"Last line is valid JSON")
+                valid_lines = lines
+            except json.JSONDecodeError:
+                logging.warning(f"Last line is incomplete, removing it")
+                valid_lines = lines[:-1]
+            
+            if valid_lines:
+                # Find the last shard referenced
+                last_entry = json.loads(valid_lines[-1])
+                if args.use_shards and 'degraded_audio_shard' in last_entry:
+                    last_shard_path = last_entry['degraded_audio_shard']
+                    import re
+                    match = re.search(r'shard_(\d+)\.h5', last_shard_path)
+                    if match:
+                        last_shard_num = int(match.group(1))
+                        
+                        # Count how many samples are in the last shard from JSONL
+                        samples_in_last_shard = sum(1 for line in valid_lines 
+                                                   if f"shard_{last_shard_num:04d}.h5" in line)
+                        
+                        # If last shard is full, move to next shard
+                        if samples_in_last_shard >= args.shard_size:
+                            current_shard_idx = last_shard_num + 1
+                            logging.info(f"Last shard is full, starting new shard {current_shard_idx}")
+                        else:
+                            current_shard_idx = last_shard_num + 1  # Will increment to continue filling
+                            logging.info(f"Last shard has {samples_in_last_shard} samples, will continue in next batch")
+                        
+                        # Delete incomplete next shard if it exists
+                        next_shard_path = os.path.join(out_folder, f"shard_{current_shard_idx:04d}.h5")
+                        if os.path.exists(next_shard_path):
+                            logging.warning(f"Deleting incomplete shard: {next_shard_path}")
+                            os.remove(next_shard_path)
+                        
+                        logging.info(f"Resuming from shard index {current_shard_idx}")
+                
+                # Rewrite JSONL with only valid lines
+                with open(out_json, 'w', encoding='utf-8') as f:
+                    f.writelines(valid_lines)
+                
+                skip_count = len(valid_lines)
+                logging.info(f"Resuming: skipping first {skip_count} samples already processed")
+        else:
+            logging.info(f"Empty JSONL file, starting fresh")
     
     # Determine input mode and load audio file list
     if args.in_folder:
@@ -160,12 +295,21 @@ def main(fileindex=None):
 
     logging.info(f"Found {len(audio_files)} audio files to process")
     
-    # Randomly select 10 indices for saving WAV samples
-    num_samples = min(10, len(audio_files))
-    sample_indices = set(random.sample(range(len(audio_files)), num_samples))
-    logging.info(f"Will save {num_samples} WAV samples in {samples_folder}")
+    # Skip already processed samples when resuming
+    if skip_count > 0:
+        audio_files = audio_files[skip_count:]
+        if input_entries is not None:
+            input_entries = input_entries[skip_count:]
+        logging.info(f"After skipping, {len(audio_files)} samples remaining to process")
     
-    with open(out_json, "w", encoding="utf-8") as outfile:
+    # Save first 10 samples for immediate verification
+    num_samples = min(10, len(audio_files))
+    sample_indices = set(range(num_samples))
+    logging.info(f"Will save first {num_samples} samples as WAV in {samples_folder}")
+    
+    # Open in append mode if resuming, write mode otherwise
+    file_mode = "a" if skip_count > 0 else "w"
+    with open(out_json, file_mode, encoding="utf-8") as outfile:
         song_counter=0
         for idx, inpath in enumerate(audio_files):
             # Get original entry if using JSONL input
@@ -216,6 +360,7 @@ def main(fileindex=None):
 
                 audio=orig_audio
                 audio = audio-np.mean(audio,axis=1,keepdims=True) #DC offset
+                
                 # degradations = set()
                 final_prompt=[]
                 final_alt_prompt=[]
@@ -596,26 +741,16 @@ def main(fileindex=None):
                             audio = normalize(audio)*norm_factor
                         # put between 0.8 and 1.0, model will normalize all inputs when loading
 
-
-                    
-
-                    if args.output_format == 'hdf5':
-                        audio_out_name=os.path.join(out_folder,f"{original_id}_deg{ver_index+1}"+".h5")
-                        with h5py.File(audio_out_name, 'w') as f:
-                            f.create_dataset('audio', data=audio, compression='gzip')
-                    else:
-                        audio_out_name=os.path.join(out_folder,f"{original_id}_deg{ver_index+1}"+f".{args.output_format}")
-                        sf.write(audio_out_name, audio.T, samplerate=fs, format=args.output_format.upper())
-
-                    # Save WAV sample if this index is selected
+                    # Save WAV sample after degradation for verification
                     if idx in sample_indices:
                         sample_wav_name = os.path.join(samples_folder, f"{original_id}_deg{ver_index+1}.wav")
                         sf.write(sample_wav_name, audio.T, samplerate=fs, format='WAV')
-                        logging.info(f"Saved sample WAV: {sample_wav_name}")
+                        logging.info(f"Saved degraded sample WAV: {sample_wav_name}")
 
+                    
+                    # Generate prompts before using them
                     if len(degrad_groups)==1:
                         single_degrad_counter.append(degrad_specific[0])
-                        # print(single_degrad_counter)
 
                     random.shuffle(final_prompt) # shuffle the sentence order
                     random.shuffle(final_alt_prompt) # shuffle the sentence order
@@ -629,46 +764,72 @@ def main(fileindex=None):
                     prompt_tgt=prompt_tgt[:-1] #to remove the final space character
                     alt_prompt_tgt=alt_prompt_tgt[:-1] #to remove the final space character
 
-                    # Start with initial information from input JSONL if available
-                    if original_entry:
-                        degraded_entry = dict(original_entry)
-                        # Only set these if not already present
-                        if "source_id" not in degraded_entry:
-                            degraded_entry["source_id"] = original_id
-                        if "clean_audio_path" not in degraded_entry:
-                            degraded_entry["clean_audio_path"] = inpath
-                        if "duration" not in degraded_entry:
-                            degraded_entry["duration"] = len(orig_audio[0]) / fs
+                    if args.use_shards:
+                        # Store audio data for later shard writing
+                        current_shard_data.append((audio, original_id, ver_index, degrad_tracking, hc, prompt_tgt, alt_prompt_tgt, inpath, orig_audio, original_entry))
+                        audio_out_name = None  # Will be set when shard is written
+                    elif args.output_format == 'hdf5':
+                        audio_out_name=os.path.join(out_folder,f"{original_id}_deg{ver_index+1}"+".h5")
+                        with h5py.File(audio_out_name, 'w') as f:
+                            f.create_dataset('audio', data=audio, compression='gzip')
                     else:
-                        degraded_entry = {
-                            "source_id": original_id,
-                            "clean_audio_path": inpath,
-                            "duration": len(orig_audio[0]) / fs
-                        }
-                    
-                    # Update fields that are modified by degradation
-                    degraded_entry.update({
-                        "id": f"{original_id}_{deg_spec_selected}",
-                        "degraded_audio_path": audio_out_name,
-                        "prompt": prompt_tgt,
-                        "alt_prompt": alt_prompt_tgt,
-                        "degradation_tracking": degrad_tracking,
-                        "hidden_clipping": hc
-                    })
+                        audio_out_name=os.path.join(out_folder,f"{original_id}_deg{ver_index+1}"+f".{args.output_format}")
+                        sf.write(audio_out_name, audio.T, samplerate=fs, format=args.output_format.upper())
 
-                    json.dump(degraded_entry, outfile)
-                    outfile.write("\n")
+                    # Only write to JSONL if not using shards (shards will write later)
+                    if not args.use_shards:
+                        # Start with initial information from input JSONL if available
+                        if original_entry:
+                            degraded_entry = dict(original_entry)
+                            # Only set these if not already present
+                            if "source_id" not in degraded_entry:
+                                degraded_entry["source_id"] = original_id
+                            if "clean_audio_path" not in degraded_entry:
+                                degraded_entry["clean_audio_path"] = inpath
+                            if "duration" not in degraded_entry:
+                                degraded_entry["duration"] = len(orig_audio[0]) / fs
+                        else:
+                            degraded_entry = {
+                                "source_id": original_id,
+                                "clean_audio_path": inpath,
+                                "duration": len(orig_audio[0]) / fs
+                            }
+                        
+                        # Update fields that are modified by degradation
+                        degraded_entry.update({
+                            "id": f"{original_id}_{deg_spec_selected}",
+                            "degraded_audio_path": audio_out_name,
+                            "prompt": prompt_tgt,
+                            "alt_prompt": alt_prompt_tgt,
+                            "degradation_tracking": degrad_tracking,
+                            "hidden_clipping": hc
+                        })
+
+                        json.dump(degraded_entry, outfile)
+                        outfile.write("\n")
+                    
+                    # Check if we need to save a shard
+                    if args.use_shards and len(current_shard_data) >= shard_size:
+                        save_shard(out_folder, current_shard_idx, current_shard_data, outfile, fs, deg_spec_selected)
+                        current_shard_idx += 1
+                        current_shard_data = []
 
 
                 except Exception as e:
                     print('ERROR'+str(e))
 
             song_counter+=1
+    
+    # Save any remaining shard data
+    if args.use_shards and current_shard_data:
+        save_shard(out_folder, current_shard_idx, current_shard_data, outfile, fs, deg_spec_selected)
 
     elapsed = time()-timestart
     logging.info(f"Processing completed in {elapsed:.2f} seconds")
     logging.info(f"Degraded audio saved to: {out_folder}")
     logging.info(f"JSONL file saved to: {out_json}")
+    if args.use_shards:
+        logging.info(f"Saved {current_shard_idx + (1 if current_shard_data else 0)} shards")
 
 if __name__ == "__main__":
     main()

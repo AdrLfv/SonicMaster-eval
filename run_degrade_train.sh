@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --time=04:00:00
+#SBATCH --time=24:00:00
 #SBATCH --job-name=degrade
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=32
@@ -30,14 +30,16 @@ DEGRADATION=$1
 
 if [ -z "$DEGRADATION" ]; then
   echo "Error: No degradation type specified"
-  echo "Usage: sbatch run_degrade.sh <degradation_type>"
+  echo "Usage: sbatch run_degrade_train.sh <degradation_type>"
   exit 1
 fi
 
 echo "Running degradation: $DEGRADATION"
 
 python dataset_scripts/degrade_final_chunks.py \
-  --in_jsonl /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster/metadata.jsonl \
-  --out_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_${DEGRADATION}_degraded \
+  --in_jsonl /work/vita/datasets/audio/sonicmaster/audios/train_sonicmaster/clean/metadata.jsonl \
+  --out_folder /work/vita/datasets/audio/sonicmaster/audios/train_sonicmaster/degraded/train_${DEGRADATION}_degraded \
   --deg_spec $DEGRADATION \
-  --output_format hdf5
+  --output_format hdf5 \
+  --use_shards \
+  --resume
