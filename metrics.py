@@ -34,32 +34,32 @@ class PESQMetric(nn.Module):
         return val_pesq
     
 
-class LogSpectralDistance(nn.Module):
-    """
-    Log-Spectral Distance metric as nn.Module for training/validation.
-    For batch file processing, use the standalone log_spectral_distance() function.
-    """
-    def __init__(self, n_fft: int = 2048, hop_length: int = 512):
-        super().__init__()
-        self.n_fft = n_fft
-        self.hop_length = hop_length
-        # Pre-create window and register as buffer so it moves with the module
-        self.register_buffer('window', torch.hann_window(n_fft))
+# class LogSpectralDistance(nn.Module):
+#     """
+#     Log-Spectral Distance metric as nn.Module for training/validation.
+#     For batch file processing, use the standalone log_spectral_distance() function.
+#     """
+#     def __init__(self, n_fft: int = 2048, hop_length: int = 512):
+#         super().__init__()
+#         self.n_fft = n_fft
+#         self.hop_length = hop_length
+#         # Pre-create window and register as buffer so it moves with the module
+#         self.register_buffer('window', torch.hann_window(n_fft))
 
-    def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        input_stft = torch.stft(inputs, n_fft=self.n_fft, hop_length=self.hop_length,
-                                window=self.window.to(inputs.device),
-                                return_complex=True)
-        target_stft = torch.stft(targets, n_fft=self.n_fft, hop_length=self.hop_length,
-                                 window=self.window.to(targets.device),
-                                 return_complex=True)
+#     def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+#         input_stft = torch.stft(inputs, n_fft=self.n_fft, hop_length=self.hop_length,
+#                                 window=self.window.to(inputs.device),
+#                                 return_complex=True)
+#         target_stft = torch.stft(targets, n_fft=self.n_fft, hop_length=self.hop_length,
+#                                  window=self.window.to(targets.device),
+#                                  return_complex=True)
 
-        input_mag = torch.abs(input_stft)
-        target_mag = torch.abs(target_stft)
+#         input_mag = torch.abs(input_stft)
+#         target_mag = torch.abs(target_stft)
 
-        diff = 10 * (torch.log10(input_mag + 1e-8) - torch.log10(target_mag + 1e-8))
-        lsd = torch.sqrt(torch.mean(diff ** 2, dim=(1, 2)))  # Mean over F and T
-        return torch.mean(lsd)  # Average over batch
+#         diff = 10 * (torch.log10(input_mag + 1e-8) - torch.log10(target_mag + 1e-8))
+#         lsd = torch.sqrt(torch.mean(diff ** 2, dim=(1, 2)))  # Mean over F and T
+#         return torch.mean(lsd)  # Average over batch
 
 class LTASDistance(nn.Module):
     def __init__(self, n_fft: int = 2048, hop_length: int = 512):

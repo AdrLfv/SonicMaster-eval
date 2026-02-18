@@ -122,6 +122,10 @@ def main(fileindex=None):
                         help='Number of samples per shard when using --use_shards (default: 1000)')
     parser.add_argument('--resume', action='store_true',
                         help='Resume from existing output (validates and continues from last valid entry)')
+    parser.add_argument('--save_degraded_wav_samples_only', action='store_true',
+                        help='Only degrade the first N samples and save them as WAV files, then stop. No shards/JSONL.')
+    parser.add_argument('--num_wav_samples', type=int, default=10,
+                        help='Number of WAV samples to save when using --save_degraded_wav_samples_only (default: 10)')
     args = parser.parse_args()
     
     timestart=time()
@@ -133,6 +137,13 @@ def main(fileindex=None):
     deg_spec_selected = args.deg_spec
     out_json = os.path.join(out_folder, 'degradation_pairs.jsonl')
     
+    # In wav-samples-only mode, force max_samples and skip sharding/resume
+    if args.save_degraded_wav_samples_only:
+        args.max_samples = args.num_wav_samples
+        args.use_shards = False
+        args.resume = False
+        logging.info(f"WAV samples only mode: will degrade {args.num_wav_samples} samples and save as WAV")
+
     # Sharding variables
     current_shard_idx = 0
     current_shard_data = []
@@ -302,14 +313,22 @@ def main(fileindex=None):
             input_entries = input_entries[skip_count:]
         logging.info(f"After skipping, {len(audio_files)} samples remaining to process")
     
-    # Save first 10 samples for immediate verification
-    num_samples = min(10, len(audio_files))
+    # Save first N samples as WAV for verification (all samples in wav-only mode)
+    if args.save_degraded_wav_samples_only:
+        num_samples = len(audio_files)
+    else:
+        num_samples = min(10, len(audio_files))
     sample_indices = set(range(num_samples))
     logging.info(f"Will save first {num_samples} samples as WAV in {samples_folder}")
     
-    # Open in append mode if resuming, write mode otherwise
-    file_mode = "a" if skip_count > 0 else "w"
-    with open(out_json, file_mode, encoding="utf-8") as outfile:
+    # In wav-samples-only mode, skip JSONL creation entirely
+    if args.save_degraded_wav_samples_only:
+        outfile = None
+    else:
+        file_mode = "a" if skip_count > 0 else "w"
+        outfile = open(out_json, file_mode, encoding="utf-8")
+    
+    try:
         song_counter=0
         for idx, inpath in enumerate(audio_files):
             # Get original entry if using JSONL input
@@ -747,6 +766,10 @@ def main(fileindex=None):
                         sf.write(sample_wav_name, audio.T, samplerate=fs, format='WAV')
                         logging.info(f"Saved degraded sample WAV: {sample_wav_name}")
 
+                    # In wav-samples-only mode, skip all output writing
+                    if args.save_degraded_wav_samples_only:
+                        continue
+
                     
                     # Generate prompts before using them
                     if len(degrad_groups)==1:
@@ -820,14 +843,18 @@ def main(fileindex=None):
 
             song_counter+=1
     
-    # Save any remaining shard data
-    if args.use_shards and current_shard_data:
-        save_shard(out_folder, current_shard_idx, current_shard_data, outfile, fs, deg_spec_selected)
+        # Save any remaining shard data
+        if args.use_shards and current_shard_data:
+            save_shard(out_folder, current_shard_idx, current_shard_data, outfile, fs, deg_spec_selected)
+    finally:
+        if outfile is not None and not outfile.closed:
+            outfile.close()
 
     elapsed = time()-timestart
     logging.info(f"Processing completed in {elapsed:.2f} seconds")
     logging.info(f"Degraded audio saved to: {out_folder}")
-    logging.info(f"JSONL file saved to: {out_json}")
+    if not args.save_degraded_wav_samples_only:
+        logging.info(f"JSONL file saved to: {out_json}")
     if args.use_shards:
         logging.info(f"Saved {current_shard_idx + (1 if current_shard_data else 0)} shards")
 

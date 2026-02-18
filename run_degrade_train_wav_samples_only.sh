@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH --time=48:00:00
-#SBATCH --job-name=degrade_
+#SBATCH --time=24:00:00
+#SBATCH --job-name=degrade
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=32
 #SBATCH --partition=standard
-#SBATCH --output=/work/vita/alefevre/programs/SonicMaster/logs/degrade_/%j.out
-#SBATCH --error=/work/vita/alefevre/programs/SonicMaster/logs/degrade_/%j.err
+#SBATCH --output=/work/vita/alefevre/programs/SonicMaster/logs/degrade/%j.out
+#SBATCH --error=/work/vita/alefevre/programs/SonicMaster/logs/degrade/%j.err
 
 
 # Load modules
@@ -42,4 +42,5 @@ python dataset_scripts/degrade_final_chunks.py \
   --deg_spec $DEGRADATION \
   --output_format hdf5 \
   --use_shards \
-  --resume
+  --num_wav_samples 10 \
+  --save_degraded_wav_samples_only
