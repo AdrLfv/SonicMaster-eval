@@ -210,7 +210,11 @@ def main(fileindex=None):
     # Determine input mode and load audio file list
     if args.in_folder:
         in_folder = args.in_folder
-        audio_files = sorted(glob(os.path.join(in_folder, '*.flac')))
+        audio_extensions = ['*.flac', '*.wav', '*.mp3']
+        audio_files = []
+        for ext in audio_extensions:
+            audio_files.extend(glob(os.path.join(in_folder, ext)))
+        audio_files = sorted(audio_files)
         input_entries = None
         logging.info(f"Input mode: folder ({in_folder})")
     else:
