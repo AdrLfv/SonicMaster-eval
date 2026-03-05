@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --time=04:00:00
-#SBATCH --job-name=reconstruct
+#SBATCH --job-name=reconstruct_degraded
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=16  # CPUs per task
-#SBATCH --output=/work/vita/alefevre/programs/SonicMaster/logs/reconstruct/%j.out
-#SBATCH --error=/work/vita/alefevre/programs/SonicMaster/logs/reconstruct/%j.err
+#SBATCH --output=/work/vita/alefevre/programs/SonicMaster/logs/reconstruct_degraded/%j.out
+#SBATCH --error=/work/vita/alefevre/programs/SonicMaster/logs/reconstruct_degraded/%j.err
 #SBATCH --ntasks-per-node=1  # One task per GPU for proper DDP
 #SBATCH --partition=h100
 #SBATCH --cpus-per-task=16  # CPUs per task
@@ -40,8 +40,13 @@ fi
 echo "Running VAE reconstruction for degradation: $DEGRADATION"
 
 # Build paths
-IN_JSONL="/work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_${DEGRADATION}_degraded/degradation_pairs.jsonl"
-OUT_FOLDER="/work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_${DEGRADATION}_reconstructed"
+IN_JSONL="/work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster/degraded/${DEGRADATION}_degraded/degradation_pairs.jsonl"
+OUT_FOLDER="/scratch/alefevre/evaluation_sonicmaster/degraded_reconstructed/${DEGRADATION}_degraded_reconstructed"
+
+if [ ! -f "$IN_JSONL" ]; then
+  echo "Error: Could not find JSONL file: ${IN_JSONL}"
+  exit 1
+fi
 
 echo "Input JSONL: $IN_JSONL"
 echo "Output folder: $OUT_FOLDER"
@@ -55,4 +60,6 @@ python reconstruct_vae_baseline.py \
   --audio_key degraded_audio_path \
   --duration_sec 30 \
   --batch_size 16 \
-  --output_format hdf5
+  --output_format wav
+
+echo "Done: ${DEGRADATION} degraded reconstruction complete"

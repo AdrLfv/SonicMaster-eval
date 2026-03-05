@@ -114,6 +114,11 @@ def parse_args():
         default="",
         help="Restoration prompt to guide the model (e.g., 'Reduce the clipping and reconstruct the lost audio, please.'). Empty string for no prompt.",
     )
+    parser.add_argument(
+        "--use_jsonl_prompt",
+        action="store_true",
+        help="Use per-sample 'prompt' field from the input JSONL instead of --prompt.",
+    )
     
     parser.add_argument(
         "--output_format",
@@ -330,7 +335,10 @@ def main():
     if world_size > 1:
         torch.distributed.barrier()
     
-    eval_jsonl_path = os.path.join(inference_output_dir, f"evaluation_metadata_rank{rank}.jsonl")
+    if world_size > 1:
+        eval_jsonl_path = os.path.join(inference_output_dir, f"restoration_metadata_rank{rank}.jsonl")
+    else:
+        eval_jsonl_path = os.path.join(inference_output_dir, "restoration_metadata.jsonl")
     eval_jsonl_file = open(eval_jsonl_path, "w", encoding="utf-8")
     
     # Create overall progress bar
@@ -342,17 +350,33 @@ def main():
         # with accelerator.accumulate(model) and torch.no_grad():
         with torch.no_grad():
             batch_start_time = time.time()  
-            text, alt_text, audios, deg_audios, duration, valid_global_indices, deg_latent_paths = batch
+            if len(batch) == 7:
+                text, alt_text, audios, deg_audios, duration, valid_global_indices, deg_latent_paths = batch
+            else:
+                text, alt_text, audios, deg_audios, duration, valid_global_indices = batch
+                deg_latent_paths = None
 
             deg_audio_list = []
-            for deg_latent_path in deg_latent_paths:
-                loaded_tensor=torch.load(deg_latent_path)
-                deg_audio_list.append(loaded_tensor)
+            if deg_latent_paths and all(p and os.path.exists(p) for p in deg_latent_paths):
+                for deg_latent_path in deg_latent_paths:
+                    loaded_tensor=torch.load(deg_latent_path)
+                    deg_audio_list.append(loaded_tensor)
+            else:
+                # Encode from raw degraded audio using VAE
+                for deg_audio_path in deg_audios:
+                    audio_waveform = read_wav_file(deg_audio_path, 30).float()
+                    if audio_waveform.dim() == 1:
+                        audio_waveform = audio_waveform.unsqueeze(0).repeat(2, 1)
+                    audio_batch = audio_waveform.unsqueeze(0).to(device)
+                    with torch.no_grad():
+                        latent = vae.encode(audio_batch).latent_dist.sample()
+                    deg_audio_list.append(latent.squeeze(0).transpose(0, 1).cpu())
 
             deg_audio_latent = torch.stack(deg_audio_list, dim=0)
             deg_audio_latent = deg_audio_latent.to(device)
 
-            text = [args.prompt]*len(text)
+            if not args.use_jsonl_prompt:
+                text = [args.prompt]*len(text)
 
             inferred_result = model.inference_flow(
                 deg_audio_latent,
@@ -381,13 +405,15 @@ def main():
             
             for k in range(len(wave_list[0])):
                 file_idx = valid_global_indices[k]
+                base_name = os.path.basename(filenames[file_idx])
+                base_stem = os.path.splitext(base_name)[0]
                 if args.output_format == 'hdf5':
-                    restored_filename = filenames[file_idx].replace(".pt", ".h5")
+                    restored_filename = f"{base_stem}_restored.h5"
                     restored_path = os.path.join(inference_output_dir, restored_filename)
                     with h5py.File(restored_path, 'w') as f:
                         f.create_dataset('audio', data=wave_list[0][k].numpy(), compression='gzip')
                 else:
-                    restored_filename = filenames[file_idx].replace(".pt", f".{args.output_format}")
+                    restored_filename = f"{base_stem}_restored.{args.output_format}"
                     restored_path = os.path.join(inference_output_dir, restored_filename)
                     sf.write(restored_path, wave_list[0][k].numpy().T, samplerate=fs, format=args.output_format.upper())
                 
@@ -396,9 +422,11 @@ def main():
                 
                 # Add/update inference-specific fields
                 eval_entry.update({
-                    "restored_path": restored_path,
+                    "restored_audio_path": restored_path,
                     "sample_rate": fs,
-                    "inference_time_seconds": batch_time / len(wave_list[0])  # Time per audio in batch
+                    "duration_sec": 30,
+                    "inference_time_seconds": batch_time / len(wave_list[0]),
+                    "timestamp": datetime.now().isoformat(),
                 })
                 eval_jsonl_file.write(json.dumps(eval_entry) + "\n")
             
@@ -411,16 +439,16 @@ def main():
     
     if world_size > 1:
         torch.distributed.barrier()
-    
-    if rank == 0:
-        combined_jsonl = os.path.join(inference_output_dir, "evaluation_metadata.jsonl")
-        with open(combined_jsonl, "w") as outf:
-            for r in range(world_size):
-                rank_file = os.path.join(inference_output_dir, f"evaluation_metadata_rank{r}.jsonl")
-                if os.path.exists(rank_file):
-                    with open(rank_file, "r") as inf:
-                        outf.write(inf.read())
-        print(f"\n✅ Combined evaluation metadata saved to: {combined_jsonl}")
+        if rank == 0:
+            combined_jsonl = os.path.join(inference_output_dir, "restoration_metadata.jsonl")
+            with open(combined_jsonl, "w") as outf:
+                for r in range(world_size):
+                    rank_file = os.path.join(inference_output_dir, f"restoration_metadata_rank{r}.jsonl")
+                    if os.path.exists(rank_file):
+                        with open(rank_file, "r") as inf:
+                            outf.write(inf.read())
+                        os.remove(rank_file)
+            print(f"\n✅ Combined restoration metadata saved to: {combined_jsonl}")
 
     # if accelerator.is_main_process:
 

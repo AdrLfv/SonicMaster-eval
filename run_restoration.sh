@@ -27,32 +27,54 @@ else
   pip install -r requirements_sonic.txt
 fi
 
-# Get degradation type and optional prompt from command line arguments
+# Get degradation type, optional prompt, and extra args from command line arguments
 DEGRADATION=$1
 PROMPT=${2:-""}
+EXTRA_ARGS="${@:3}"
 
 if [ -z "$DEGRADATION" ]; then
   echo "Error: No degradation type specified"
-  echo "Usage: sbatch run_restoration.sh <degradation_type> [prompt]"
+  echo "Usage: sbatch run_restoration.sh <degradation_type> [prompt] [extra_args...]"
+  echo "  degradation_type: e.g., clip, airy, punch, etc."
+  echo "  prompt: (optional) restoration prompt for the model. Use '' for no prompt."
+  echo "  extra_args: (optional) forwarded to inference_ptload_batch.py (e.g., --num_examples 10)"
   exit 1
 fi
 
 echo "Running restoration for degradation: $DEGRADATION"
 
-# Build paths
-IN_JSONL="/work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_${DEGRADATION}_encoded/degradation_pairs.jsonl"
+# Build paths — read from per-degradation subfolder
+IN_JSONL="/work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster/degraded/${DEGRADATION}_degraded/degradation_pairs.jsonl"
+
+if [ ! -f "$IN_JSONL" ]; then
+  echo "Error: Could not find JSONL file: ${IN_JSONL}"
+  exit 1
+fi
 
 # Determine output folder based on whether prompt is provided
-if [ -z "$PROMPT" ]; then
-  OUT_FOLDER="/work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_${DEGRADATION}_restored"
+USE_JSONL_PROMPT=0
+if [ "$PROMPT" = "__USE_JSONL_PROMPT__" ]; then
+  USE_JSONL_PROMPT=1
+  PROMPT=""
+  OUT_FOLDER="/scratch/alefevre/evaluation_sonicmaster/restored/${DEGRADATION}_sm_restored_prompt"
+  echo "Running restoration WITH per-sample JSONL prompts"
+elif [ -z "$PROMPT" ]; then
+  OUT_FOLDER="/scratch/alefevre/evaluation_sonicmaster/restored/${DEGRADATION}_sm_restored"
   echo "Running restoration WITHOUT prompt"
 else
-  OUT_FOLDER="/work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster_${DEGRADATION}_restored_prompt"
+  OUT_FOLDER="/scratch/alefevre/evaluation_sonicmaster/restored/${DEGRADATION}_sm_restored_prompt"
   echo "Running restoration WITH prompt: $PROMPT"
 fi
 
-echo "Input JSONL: $IN_JSONL"
-echo "Output folder: $OUT_FOLDER"
+echo "=========================================="
+echo "Inference Configuration (SonicMaster):"
+echo "=========================================="
+echo "Degradation:   ${DEGRADATION}"
+echo "JSONL:         ${IN_JSONL}"
+echo "Output dir:    ${OUT_FOLDER}"
+echo "Prompt:        ${PROMPT:-<none>}"
+echo "Extra args:    ${EXTRA_ARGS:-<none>}"
+echo "=========================================="
 
 # Create output directory if it doesn't exist
 mkdir -p "$OUT_FOLDER"
@@ -63,12 +85,23 @@ CMD="python inference_ptload_batch.py \
   --model_ckpt checkpoints/model.safetensors \
   --infer_file \"$IN_JSONL\" \
   --output_dir \"$OUT_FOLDER\" \
-  --output_format hdf5"
+  --output_format wav"
 
 # Add prompt if provided
-if [ -n "$PROMPT" ]; then
+if [ "$USE_JSONL_PROMPT" -eq 1 ]; then
+  CMD="$CMD --use_jsonl_prompt"
+elif [ -n "$PROMPT" ]; then
   CMD="$CMD --prompt \"$PROMPT\""
 fi
+
+# Forward any additional CLI args
+if [ -n "$EXTRA_ARGS" ]; then
+  CMD="$CMD ${EXTRA_ARGS}"
+fi
+
+echo "Running command:"
+echo "$CMD"
+echo ""
 
 # Execute the command
 eval $CMD
