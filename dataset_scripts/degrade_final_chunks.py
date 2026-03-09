@@ -44,59 +44,68 @@ def save_shard(out_folder, shard_idx, shard_data, outfile, fs, deg_spec_selected
     logging.info(f"Saving shard {shard_idx} with {len(shard_data)} samples to {shard_path}")
     
     metadata_entries = []
-    with h5py.File(shard_path, 'w') as f:
-        for idx, (audio, original_id, ver_index, degrad_tracking, hc, prompt_tgt, alt_prompt_tgt, inpath, orig_audio, original_entry) in enumerate(shard_data):
-            dataset_key = f"sample_{idx:05d}_{original_id}_deg{ver_index+1}"
-            grp = f.create_group(dataset_key)
-            grp.create_dataset('audio', data=audio, compression='gzip', compression_opts=4)
-            
-            # Create the degraded audio path in HDF5 format
-            degraded_audio_path = f"{shard_path}::/{dataset_key}"
-            
-            # Start with initial information from input JSONL if available
-            if original_entry:
-                degraded_entry = dict(original_entry)
-                if "source_id" not in degraded_entry:
-                    degraded_entry["source_id"] = original_id
-                if "clean_audio_path" not in degraded_entry:
-                    degraded_entry["clean_audio_path"] = inpath
-                if "duration" not in degraded_entry:
-                    degraded_entry["duration"] = len(orig_audio[0]) / fs
-            else:
-                degraded_entry = {
-                    "source_id": original_id,
-                    "clean_audio_path": inpath,
-                    "duration": len(orig_audio[0]) / fs
-                }
-            
-            # Update fields that are modified by degradation
-            degraded_entry.update({
-                "id": f"{original_id}_{deg_spec_selected}",
-                "degraded_audio_path": degraded_audio_path,
-                "degraded_audio_dataset": dataset_key,
-                "degraded_audio_shard": shard_path,
-                "prompt": prompt_tgt,
-                "alt_prompt": alt_prompt_tgt,
-                "degradation_tracking": degrad_tracking,
-                "hidden_clipping": hc
-            })
-            
-            # Store metadata as HDF5 attributes
-            for key, value in degraded_entry.items():
-                if value is None:
-                    continue
-                if isinstance(value, (list, dict)):
-                    grp.attrs[key] = json.dumps(value)
+    try:
+        with h5py.File(shard_path, 'w') as f:
+            for idx, (audio, original_id, ver_index, degrad_tracking, hc, prompt_tgt, alt_prompt_tgt, inpath, orig_audio, original_entry) in enumerate(shard_data):
+                dataset_key = f"sample_{idx:05d}_{original_id}_deg{ver_index+1}"
+                grp = f.create_group(dataset_key)
+                grp.create_dataset('audio', data=audio, compression='gzip', compression_opts=4)
+                
+                # Create the degraded audio path in HDF5 format
+                degraded_audio_path = f"{shard_path}::/{dataset_key}"
+                
+                # Start with initial information from input JSONL if available
+                if original_entry:
+                    degraded_entry = dict(original_entry)
+                    if "source_id" not in degraded_entry:
+                        degraded_entry["source_id"] = original_id
+                    if "clean_audio_path" not in degraded_entry:
+                        degraded_entry["clean_audio_path"] = inpath
+                    if "duration" not in degraded_entry:
+                        degraded_entry["duration"] = len(orig_audio[0]) / fs
                 else:
-                    grp.attrs[key] = value
-            
-            metadata_entries.append(degraded_entry)
+                    degraded_entry = {
+                        "source_id": original_id,
+                        "clean_audio_path": inpath,
+                        "duration": len(orig_audio[0]) / fs
+                    }
+                
+                # Update fields that are modified by degradation
+                degraded_entry.update({
+                    "id": f"{original_id}_{deg_spec_selected}",
+                    "degraded_audio_path": degraded_audio_path,
+                    "degraded_audio_dataset": dataset_key,
+                    "degraded_audio_shard": shard_path,
+                    "prompt": prompt_tgt,
+                    "alt_prompt": alt_prompt_tgt,
+                    "degradation_tracking": degrad_tracking,
+                    "hidden_clipping": hc
+                })
+                
+                # Store metadata as HDF5 attributes
+                for key, value in degraded_entry.items():
+                    if value is None:
+                        continue
+                    if isinstance(value, (list, dict)):
+                        grp.attrs[key] = json.dumps(value)
+                    else:
+                        grp.attrs[key] = value
+                
+                metadata_entries.append(degraded_entry)
+    except OSError as e:
+        logging.error(f"CRITICAL ERROR: HDF5 I/O error (likely out of disk space): {e}")
+        sys.exit(1)
     
     # Write metadata to JSONL if outfile is provided and open
     if outfile and not outfile.closed:
-        for degraded_entry in metadata_entries:
-            json.dump(degraded_entry, outfile)
-            outfile.write("\n")
+        try:
+            for degraded_entry in metadata_entries:
+                json.dump(degraded_entry, outfile)
+                outfile.write("\n")
+                outfile.flush()  # Ensure it is written to disk immediately
+        except OSError as e:
+            logging.error(f"CRITICAL ERROR: Failed to write JSON metadata (likely out of disk space): {e}")
+            sys.exit(1)
     
     return metadata_entries
 
@@ -801,6 +810,13 @@ def main(fileindex=None):
 
                     prompt_tgt=prompt_tgt[:-1] #to remove the final space character
                     alt_prompt_tgt=alt_prompt_tgt[:-1] #to remove the final space character
+
+                    import shutil
+                    import sys
+                    free_space = shutil.disk_usage(out_folder).free
+                    if free_space < 100 * 1024 * 1024:  # 100 MB
+                        logging.error(f"CRITICAL ERROR: No space left on device! Only {free_space / (1024*1024):.2f} MB available in {out_folder}")
+                        sys.exit(1)
 
                     if args.use_shards:
                         # Store audio data for later shard writing
