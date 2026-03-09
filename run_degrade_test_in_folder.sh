@@ -40,4 +40,5 @@ python dataset_scripts/degrade_final_chunks.py \
   --in_folder /work/vita/datasets/audio/sonicmaster/audios/miles_davis_test_set \
   --out_folder /scratch/alefevre/miles_davis_test_set/degraded/${DEGRADATION}_degraded \
   --deg_spec $DEGRADATION \
-  --output_format hdf5
+  --output_format hdf5 \
+  --crop_to_original

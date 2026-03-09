@@ -38,8 +38,8 @@ echo "Running degradation: $DEGRADATION"
 
 python dataset_scripts/degrade_final_chunks.py \
   --in_jsonl /work/vita/datasets/audio/sonicmaster/audios/train_sonicmaster/clean/metadata.jsonl \
-  --out_folder /work/vita/datasets/audio/sonicmaster/audios/train_sonicmaster/degraded/train_${DEGRADATION}_degraded \
+  --out_folder /work/vita/datasets/audio/sonicmaster/audios/train_sonicmaster/degraded/train_${DEGRADATION}_degraded_cropped \
   --deg_spec $DEGRADATION \
   --output_format hdf5 \
   --use_shards \
-  --resume
+  --crop_to_original

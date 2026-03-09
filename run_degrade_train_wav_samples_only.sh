@@ -43,4 +43,5 @@ python dataset_scripts/degrade_final_chunks.py \
   --output_format hdf5 \
   --use_shards \
   --num_wav_samples 10 \
-  --save_degraded_wav_samples_only
+  --save_degraded_wav_samples_only \
+  --crop_to_original

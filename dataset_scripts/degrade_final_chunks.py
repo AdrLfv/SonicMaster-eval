@@ -126,6 +126,8 @@ def main(fileindex=None):
                         help='Only degrade the first N samples and save them as WAV files, then stop. No shards/JSONL.')
     parser.add_argument('--num_wav_samples', type=int, default=10,
                         help='Number of WAV samples to save when using --save_degraded_wav_samples_only (default: 10)')
+    parser.add_argument('--crop_to_original', action='store_true',
+                        help='Crop the degraded audio to match the length of the original audio')
     args = parser.parse_args()
     
     timestart=time()
@@ -741,6 +743,15 @@ def main(fileindex=None):
                             final_prompt.append(prompt)
                             final_alt_prompt.append(alt_prompt)
                             degrad_tracking["Amplitude"]=["volume",[vol_mult]]
+
+                    if args.crop_to_original:
+                        orig_length = orig_audio.shape[1]
+                        if audio.shape[1] > orig_length:
+                            audio = audio[:, :orig_length]
+                        elif audio.shape[1] < orig_length:
+                            # Pad with zeros if shorter (though rare for these degradations)
+                            padding = np.zeros((audio.shape[0], orig_length - audio.shape[1]))
+                            audio = np.hstack((audio, padding))
 
                     audio = audio-np.mean(audio,axis=1,keepdims=True) #DC offset
 
