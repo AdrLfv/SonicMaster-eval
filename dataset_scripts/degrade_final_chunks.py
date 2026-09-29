@@ -270,34 +270,52 @@ def main(fileindex=None):
 
     degradation_groups = {
         "EQ": {
-            "prob": 0.4,
+            "prob": 0.25,
             "options": {
                 "xband": 7, "mic": 5, "bright": 3, "dark": 3, "airy": 2,
                 "boom": 2, "clarity": 3, "mud": 3, "warm": 3, "vocal": 4
             }
         },
         "Dynamics": {
-            "prob": 0.125,
+            "prob": 0.08,
             "options": {
                 "comp": 2.5, "punch": 1
             }
         },
         "Reverb": {
-            "prob": 0.225,
+            "prob": 0.15,
             "options": {
                 "small": 0.15, "big": 0.15, "mix": 0.3, "real": 0.4
             }
         },
         "Amplitude": {
-            "prob": 0.125,
+            "prob": 0.07,
             "options": {
-                "clip": 3, "volume": 1
+                "clip": 3, "volume": 1, "soft_clip": 3
             }
         },
         "Stereo": {
-            "prob": 0.125,
+            "prob": 0.07,
             "options": {
                 "stereo": 1
+            }
+        },
+        "Noise": {
+            "prob": 0.15,
+            "options": {
+                "noise": 4, "crackle": 3, "hum": 2
+            }
+        },
+        "Filter": {
+            "prob": 0.13,
+            "options": {
+                "highpass": 2, "telephone": 3, "low_sr": 2, "mp3_sim": 2
+            }
+        },
+        "Tape": {
+            "prob": 0.10,
+            "options": {
+                "pitch_instability": 2, "dc_offset": 1
             }
         }
     }
@@ -399,7 +417,7 @@ def main(fileindex=None):
                 final_prompt=[]
                 final_alt_prompt=[]
 
-                degrad_tracking={"EQ": [], "Dynamics": [], "Reverb": [], "Amplitude": [], "Stereo": []}
+                degrad_tracking={"EQ": [], "Dynamics": [], "Reverb": [], "Amplitude": [], "Stereo": [], "Noise": [], "Filter": [], "Tape": []}
                 try:
 
                     degrad_groups = set()
@@ -752,6 +770,129 @@ def main(fileindex=None):
                             final_prompt.append(prompt)
                             final_alt_prompt.append(alt_prompt)
                             degrad_tracking["Amplitude"]=["volume",[vol_mult]]
+
+                        if "soft_clip" in degrad_specific:
+                            drive_opts = [1.5, 2.0, 3.0, 4.0, 6.0]
+                            drive_val = random.choice(drive_opts)
+                            char_opts = ['tanh', 'atan', 'cubic']
+                            char_val = random.choice(char_opts)
+                            audio = soft_clip(audio, drive=drive_val, character=char_val)
+
+                            prompt,alt_prompt = prompts_soft_clip(2)
+                            final_prompt.append(prompt)
+                            final_alt_prompt.append(alt_prompt)
+                            degrad_tracking["Amplitude"]=["soft_clip",[drive_val, char_val]]
+
+
+                    if "Noise" in degrad_groups:
+                        if "noise" in degrad_specific:
+                            # SNR 5-35 dB calibrated from real degraded files (6-14 dB severe)
+                            snr_db = random.randint(5, 35)
+                            color_opts = ['white', 'pink', 'brown']
+                            color_weights = [1, 2, 2]  # pink/brown more common in real recordings
+                            noise_color = random.choices(color_opts, weights=color_weights, k=1)[0]
+                            audio = add_noise(audio, fs, snr_db, noise_color=noise_color)
+
+                            prompt,alt_prompt = prompts_noise(2)
+                            final_prompt.append(prompt)
+                            final_alt_prompt.append(alt_prompt)
+                            degrad_tracking["Noise"]=["noise",[snr_db, noise_color]]
+
+                        elif "crackle" in degrad_specific:
+                            # density calibrated from real: 14/s severe → density 0.0001-0.005
+                            density_opts = [0.0001, 0.0003, 0.0005, 0.001, 0.003]
+                            density_val = random.choice(density_opts)
+                            amp_lo = random.uniform(0.2, 0.5)
+                            amp_hi = random.uniform(0.6, 1.0)
+                            audio = add_crackle(audio, fs, density=density_val,
+                                                amplitude_range=(amp_lo, amp_hi))
+
+                            prompt,alt_prompt = prompts_crackle(2)
+                            final_prompt.append(prompt)
+                            final_alt_prompt.append(alt_prompt)
+                            degrad_tracking["Noise"]=["crackle",[density_val, amp_lo, amp_hi]]
+
+                        elif "hum" in degrad_specific:
+                            freq_opts = [50.0, 60.0]
+                            hum_freq = random.choice(freq_opts)
+                            hum_harmonics = random.randint(2, 5)
+                            hum_amp_db = random.randint(-35, -15)
+                            audio = add_hum(audio, fs, frequency=hum_freq,
+                                            harmonics=hum_harmonics, amplitude_db=hum_amp_db)
+
+                            prompt,alt_prompt = prompts_hum(2)
+                            final_prompt.append(prompt)
+                            final_alt_prompt.append(alt_prompt)
+                            degrad_tracking["Noise"]=["hum",[hum_freq, hum_harmonics, hum_amp_db]]
+
+
+                    if "Filter" in degrad_groups:
+                        if "highpass" in degrad_specific:
+                            cutoff_opts = [80, 120, 200, 300, 500]
+                            cutoff_val = random.choice(cutoff_opts)
+                            hp_order = random.randint(2, 6)
+                            audio = highpass_filter(audio, fs, cutoff_hz=cutoff_val, order=hp_order)
+
+                            prompt,alt_prompt = prompts_highpass(2)
+                            final_prompt.append(prompt)
+                            final_alt_prompt.append(alt_prompt)
+                            degrad_tracking["Filter"]=["highpass",[cutoff_val, hp_order]]
+
+                        elif "telephone" in degrad_specific:
+                            # Calibrated from real: -3dB at 3400-4500 Hz
+                            low_hz = random.randint(200, 400)
+                            high_hz = random.randint(2500, 4000)
+                            tel_order = random.randint(3, 5)
+                            audio = telephone_filter(audio, fs, low_hz=low_hz,
+                                                     high_hz=high_hz, order=tel_order)
+
+                            prompt,alt_prompt = prompts_telephone(2)
+                            final_prompt.append(prompt)
+                            final_alt_prompt.append(alt_prompt)
+                            degrad_tracking["Filter"]=["telephone",[low_hz, high_hz, tel_order]]
+
+                        elif "low_sr" in degrad_specific:
+                            target_sr_opts = [8000, 11025, 16000, 22050]
+                            target_sr_val = random.choice(target_sr_opts)
+                            audio = simulate_low_samplerate(audio, fs, target_sr=target_sr_val)
+
+                            prompt,alt_prompt = prompts_low_samplerate(2)
+                            final_prompt.append(prompt)
+                            final_alt_prompt.append(alt_prompt)
+                            degrad_tracking["Filter"]=["low_sr",[target_sr_val]]
+
+                        elif "mp3_sim" in degrad_specific:
+                            bitrate_opts = [32, 48, 64, 96, 128]
+                            bitrate_val = random.choice(bitrate_opts)
+                            audio = mp3_artifact_simulation(audio, fs, bitrate_kbps=bitrate_val)
+
+                            prompt,alt_prompt = prompts_mp3(2)
+                            final_prompt.append(prompt)
+                            final_alt_prompt.append(alt_prompt)
+                            degrad_tracking["Filter"]=["mp3_sim",[bitrate_val]]
+
+
+                    if "Tape" in degrad_groups:
+                        if "pitch_instability" in degrad_specific:
+                            rate_hz = random.uniform(0.5, 5.0)
+                            depth_cents = random.uniform(5.0, 30.0)
+                            audio = pitch_instability(audio, fs, rate_hz=rate_hz,
+                                                      depth_cents=depth_cents)
+
+                            prompt,alt_prompt = prompts_pitch_instability(2)
+                            final_prompt.append(prompt)
+                            final_alt_prompt.append(alt_prompt)
+                            degrad_tracking["Tape"]=["pitch_instability",[round(rate_hz,2), round(depth_cents,2)]]
+
+                        elif "dc_offset" in degrad_specific:
+                            offset_val = random.uniform(0.01, 0.1) * random.choice([-1, 1])
+                            audio = dc_offset(audio, offset=offset_val)
+
+                            prompt,alt_prompt = prompts_dc_offset(2)
+                            final_prompt.append(prompt)
+                            final_alt_prompt.append(alt_prompt)
+                            degrad_tracking["Tape"]=["dc_offset",[round(offset_val,4)]]
+
 
                     if args.crop_to_original:
                         orig_length = orig_audio.shape[1]

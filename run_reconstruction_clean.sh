@@ -2,7 +2,7 @@
 #SBATCH --time=04:00:00
 #SBATCH --job-name=reconstruct_clean
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=16  # CPUs per task
+#SBATCH --cpus-per-task=4  # CPUs per task
 #SBATCH --output=/work/vita/alefevre/programs/SonicMaster/logs/reconstruct_clean/%j.out
 #SBATCH --error=/work/vita/alefevre/programs/SonicMaster/logs/reconstruct_clean/%j.err
 #SBATCH --ntasks-per-node=1  # One task per GPU for proper DDP

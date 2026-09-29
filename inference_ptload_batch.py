@@ -2,6 +2,7 @@ import argparse
 import json
 import math
 import os
+import re
 import yaml
 from datetime import datetime
 import time
@@ -21,6 +22,47 @@ import h5py
 
 
 logger = get_logger(__name__)
+
+
+def restored_filename(degraded_audio_path, output_format, strip_degradation_suffix=False):
+    """Build a restored filename from the degraded input filename."""
+    base_name = os.path.basename(degraded_audio_path)
+    base_stem = os.path.splitext(base_name)[0]
+    if strip_degradation_suffix:
+        base_stem = re.sub(r"_deg\d+$", "", base_stem)
+    extension = "h5" if output_format == "hdf5" else output_format
+    return f"{base_stem}_restored.{extension}"
+
+
+def load_completed_indices(metadata_path, output_dir, filenames, output_format,
+                           strip_degradation_suffix):
+    """Return manifest indices with both valid metadata and an existing output."""
+    completed = set()
+    if not os.path.isfile(metadata_path):
+        return completed
+    with open(metadata_path, "r", encoding="utf-8") as infile:
+        for line_number, line in enumerate(infile, start=1):
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+                source_index = int(entry["source_manifest_index"])
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+                print(f"Ignoring invalid resume metadata line {line_number}: {exc}")
+                continue
+            if not 0 <= source_index < len(filenames):
+                continue
+            expected_path = os.path.join(
+                output_dir,
+                restored_filename(
+                    filenames[source_index], output_format, strip_degradation_suffix
+                ),
+            )
+            if (entry.get("restored_audio_path") == expected_path
+                    and os.path.isfile(expected_path)
+                    and os.path.getsize(expected_path) > 44):
+                completed.add(source_index)
+    return completed
 
 
 def parse_args():
@@ -88,6 +130,13 @@ def parse_args():
     )
 
     parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=16,
+        help="Inference batch size (default: 16). Reduce this for GPUs with limited memory.",
+    )
+
+    parser.add_argument(
         "--model_ckpt",
         type=str,
         default="/outputs/seed27full10sec/epoch_40",
@@ -132,6 +181,25 @@ def parse_args():
         "--use_timestamp",
         action="store_true",
         help="Append timestamp to output directory (creates inference_YYYYMMDD_HHMMSS subdirectory)",
+    )
+
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Append metadata and skip indices whose metadata and output file already exist.",
+    )
+
+    parser.add_argument(
+        "--strip_degradation_suffix",
+        action="store_true",
+        help="Strip a trailing _degN suffix from restored output filenames.",
+    )
+
+    parser.add_argument(
+        "--num_inference_steps",
+        type=int,
+        default=100,
+        help="Number of Euler steps of the restoration flow (SonicMaster default elsewhere: 10).",
     )
 
     args = parser.parse_args()
@@ -293,21 +361,56 @@ def main():
         args.num_examples,
         deg_latent_column="degraded_latent_path",
     )
-    
+
+    if args.use_timestamp:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        inference_output_dir = os.path.join(output_dir, f"inference_{timestamp}")
+    else:
+        inference_output_dir = output_dir
+
+    if rank == 0:
+        os.makedirs(inference_output_dir, exist_ok=True)
+
+    if args.resume and world_size > 1:
+        raise ValueError("--resume currently supports single-process inference only")
+
+    eval_jsonl_path = os.path.join(inference_output_dir, "restoration_metadata.jsonl")
+    completed_indices = set()
+    if args.resume:
+        completed_indices = load_completed_indices(
+            eval_jsonl_path,
+            inference_output_dir,
+            filenames,
+            args.output_format,
+            args.strip_degradation_suffix,
+        )
+        if completed_indices:
+            print(f"Resume: skipping {len(completed_indices)} completed samples")
+
     if world_size > 1:
         dataset_size = len(full_dataset)
         indices = list(range(rank, dataset_size, world_size))
+        indices = [index for index in indices if index not in completed_indices]
         infer_dataset = torch.utils.data.Subset(full_dataset, indices)
         print(f"Rank {rank}: Processing {len(infer_dataset)}/{dataset_size} samples")
+    elif args.resume:
+        indices = [
+            index for index in range(len(full_dataset))
+            if index not in completed_indices
+        ]
+        infer_dataset = torch.utils.data.Subset(full_dataset, indices)
     else:
         infer_dataset = full_dataset
+
+    if len(infer_dataset) == 0:
+        print("All requested samples are already complete.")
+        return
 
     infer_dataloader = DataLoader(
         infer_dataset,
         shuffle=False,
-        # batch_size=config["training"]["per_device_batch_size"],
-        batch_size=16,
-        collate_fn=infer_dataset.collate_fn,
+        batch_size=args.batch_size,
+        collate_fn=full_dataset.collate_fn,
     )
 
 
@@ -318,28 +421,15 @@ def main():
     tqdm(range(math.ceil(len(infer_dataloader) / total_batch_size)))
 
 
-    infer_outputs=[]
-    # wave_list=[]
     model.eval()
-    global_idx=0
-
-    if args.use_timestamp:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        inference_output_dir = os.path.join(output_dir, f"inference_{timestamp}")
-    else:
-        inference_output_dir = output_dir
-    
-    if rank == 0:
-        os.makedirs(inference_output_dir, exist_ok=True)
     
     if world_size > 1:
         torch.distributed.barrier()
     
     if world_size > 1:
         eval_jsonl_path = os.path.join(inference_output_dir, f"restoration_metadata_rank{rank}.jsonl")
-    else:
-        eval_jsonl_path = os.path.join(inference_output_dir, "restoration_metadata.jsonl")
-    eval_jsonl_file = open(eval_jsonl_path, "w", encoding="utf-8")
+    metadata_mode = "a" if args.resume else "w"
+    eval_jsonl_file = open(eval_jsonl_path, metadata_mode, encoding="utf-8")
     
     # Create overall progress bar
     total_batches = len(infer_dataloader)
@@ -383,39 +473,35 @@ def main():
                 text,
                 # audiocond_latents=audio_latent,
                 audiocond_latents=None,
-                num_inference_steps=100,
+                num_inference_steps=args.num_inference_steps,
                 timesteps=None,
                 guidance_scale=1,
                 duration=duration,
-                seed=0,
+                seed=args.seed if args.seed is not None else 0,
                 disable_progress=True,
                 num_samples_per_prompt=1,
                 callback_on_step_end=None,
                 solver="Euler", #Euler or rk4
             )
-            infer_outputs.append(inferred_result)
-            wave_list=[]
-
             wave = vae.decode(inferred_result.transpose(2, 1)).sample.cpu()
-            wave_list.append(wave)
 
             # Calculate time taken for this batch
             batch_end_time = time.time()
             batch_time = batch_end_time - batch_start_time
             
-            for k in range(len(wave_list[0])):
-                file_idx = valid_global_indices[k]
-                base_name = os.path.basename(filenames[file_idx])
-                base_stem = os.path.splitext(base_name)[0]
+            for k in range(len(wave)):
+                file_idx = int(valid_global_indices[k])
+                output_name = restored_filename(
+                    filenames[file_idx],
+                    args.output_format,
+                    args.strip_degradation_suffix,
+                )
+                restored_path = os.path.join(inference_output_dir, output_name)
                 if args.output_format == 'hdf5':
-                    restored_filename = f"{base_stem}_restored.h5"
-                    restored_path = os.path.join(inference_output_dir, restored_filename)
                     with h5py.File(restored_path, 'w') as f:
-                        f.create_dataset('audio', data=wave_list[0][k].numpy(), compression='gzip')
+                        f.create_dataset('audio', data=wave[k].numpy(), compression='gzip')
                 else:
-                    restored_filename = f"{base_stem}_restored.{args.output_format}"
-                    restored_path = os.path.join(inference_output_dir, restored_filename)
-                    sf.write(restored_path, wave_list[0][k].numpy().T, samplerate=fs, format=args.output_format.upper())
+                    sf.write(restored_path, wave[k].numpy().T, samplerate=fs, format=args.output_format.upper())
                 
                 # Write metadata for evaluation - start with original metadata
                 eval_entry = dict(input_metadata[file_idx])
@@ -423,12 +509,32 @@ def main():
                 # Add/update inference-specific fields
                 eval_entry.update({
                     "restored_audio_path": restored_path,
+                    "source_manifest_index": file_idx,
+                    "prompt_used": text[k],
                     "sample_rate": fs,
                     "duration_sec": 30,
-                    "inference_time_seconds": batch_time / len(wave_list[0]),
+                    "inference_time_seconds": batch_time / len(wave),
                     "timestamp": datetime.now().isoformat(),
+                    "inference_settings": {
+                        "mode": "with_prompt" if args.use_jsonl_prompt else "fixed_prompt",
+                        "prompt_field": args.text_column if args.use_jsonl_prompt else None,
+                        "model_checkpoint": os.path.abspath(args.model_ckpt),
+                        "config": os.path.abspath(args.config),
+                        "vae": "stabilityai/stable-audio-open-1.0/vae",
+                        "num_inference_steps": args.num_inference_steps,
+                        "guidance_scale": 1,
+                        "solver": "Euler",
+                        "seed": args.seed if args.seed is not None else 0,
+                        "duration_sec": 30,
+                        "sample_rate_hz": fs,
+                        "batch_size": args.batch_size,
+                        "output_format": args.output_format,
+                    },
                 })
                 eval_jsonl_file.write(json.dumps(eval_entry) + "\n")
+            eval_jsonl_file.flush()
+
+            del inferred_result, wave, deg_audio_latent
             
             # Update progress bar after each batch
             pbar.update(1)

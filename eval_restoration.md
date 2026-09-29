@@ -117,3 +117,51 @@ sbatch run_evaluate_aae.sh volume restored_prompt
 sbatch run_evaluate_aae.sh warm restored_prompt
 sbatch run_evaluate_aae.sh xband restored_prompt
 ```
+
+# Paper figure clips with per-sample prompts
+
+The dedicated wrapper restores the six clean/degraded excerpts used by the
+YuE2 comparison figure. It validates every zero-based manifest index and sample
+ID, uses the `prompt` field rather than `alt_prompt`, and records the complete
+inference configuration in `restoration_metadata.jsonl`.
+
+Submit from JED:
+
+```bash
+ssh kuma 'cd /work/vita/alefevre/programs/SonicMaster && \
+  sbatch run_restore_prompt_figure_clips.sh'
+```
+
+Outputs are written to KUMA scratch:
+
+```text
+/scratch/alefevre/evaluation_ariel/restored_sonicmaster_prompt_figure_clips/
+```
+
+The wrapper uses 100 Euler steps, guidance scale 1, seed 0, FP32, and batch
+size 1 so that 30-second restoration fits on a 24 GB MIG.
+
+# Full prompted SonicMaster test set
+
+Restore one degradation at a time with a resumable six-hour KUMA job. Start
+with `airy`; submit other degradations only after reviewing whether the airy
+comparison is sufficient.
+
+```bash
+ssh kuma 'cd /work/vita/alefevre/programs/SonicMaster && \
+  sbatch run_restore_prompt_testset.sh airy'
+```
+
+The generic output layout is:
+
+```text
+/scratch/alefevre/evaluation_ariel/restored_sonicmaster_prompt_testset/
+  <degradation>/
+    <sample_id>_restored.wav
+    restoration_metadata.jsonl
+```
+
+The wrapper uses the manifest `prompt` field. Each metadata row preserves the
+zero-based `source_manifest_index` needed to pair the result with ACE-Step-XL.
+It runs with `--resume`, so resubmitting the same degradation skips entries
+that already have both a valid WAV and a matching indexed metadata row.

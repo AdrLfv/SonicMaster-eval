@@ -145,34 +145,54 @@ def load_audio_as_numpy(path, target_sr=44100, mono=True):
 
 
 def read_wav_file(filename, duration_sec):
-    ext = os.path.splitext(filename)[1].lower()
-    
-    if ext in ['.h5', '.hdf5']:
-        with h5py.File(filename, 'r') as f:
-            waveform = torch.from_numpy(f['audio'][:])
-            
-            if waveform.dim() == 2 and waveform.shape[1] == 2 and waveform.shape[0] > 2:
-                waveform = waveform.T
-            
-            if waveform.dim() == 1:
-                waveform = waveform.unsqueeze(0).repeat(2, 1)
-            elif waveform.shape[0] == 1:
-                waveform = waveform.repeat(2, 1)
-            elif waveform.shape[0] > 2:
-                waveform = waveform[:2, :]
-        
+    # A sharded dataset reference has the form ``shard.h5::/dataset_name``.
+    # Treat it as audio data rather than passing the combined string to
+    # torchaudio, which only understands standalone audio files.
+    if '::' in filename and ('.h5' in filename or '.hdf5' in filename):
+        file_path, dataset_path = filename.split('::', 1)
+        dataset_path = dataset_path.lstrip('/')
+        with h5py.File(file_path, 'r') as f:
+            item = f[dataset_path]
+            audio_data = item['audio'][:] if isinstance(item, h5py.Group) else item[:]
+        waveform = torch.from_numpy(audio_data).float()
+        if waveform.dim() == 2 and waveform.shape[1] == 2 and waveform.shape[0] > 2:
+            waveform = waveform.T
+        if waveform.dim() == 1:
+            waveform = waveform.unsqueeze(0).repeat(2, 1)
+        elif waveform.shape[0] == 1:
+            waveform = waveform.repeat(2, 1)
+        elif waveform.shape[0] > 2:
+            waveform = waveform[:2, :]
         sr = 44100
     else:
-        try:
-            info = torchaudio.info(filename)
-            sample_rate = info.sample_rate
+        ext = os.path.splitext(filename)[1].lower()
 
-            # Calculate the number of frames corresponding to the desired duration
-            num_frames = int(sample_rate * duration_sec)
+        if ext in ['.h5', '.hdf5']:
+            with h5py.File(filename, 'r') as f:
+                waveform = torch.from_numpy(f['audio'][:])
 
-            waveform, sr = torchaudio.load(filename, num_frames=num_frames)  # Faster!!!
-        except Exception as e:
-            raise FileNotFoundError(f"Error reading audio file '{filename}': {str(e)}")
+                if waveform.dim() == 2 and waveform.shape[1] == 2 and waveform.shape[0] > 2:
+                    waveform = waveform.T
+
+                if waveform.dim() == 1:
+                    waveform = waveform.unsqueeze(0).repeat(2, 1)
+                elif waveform.shape[0] == 1:
+                    waveform = waveform.repeat(2, 1)
+                elif waveform.shape[0] > 2:
+                    waveform = waveform[:2, :]
+
+            sr = 44100
+        else:
+            try:
+                info = torchaudio.info(filename)
+                sample_rate = info.sample_rate
+
+                # Calculate the number of frames corresponding to the desired duration
+                num_frames = int(sample_rate * duration_sec)
+
+                waveform, sr = torchaudio.load(filename, num_frames=num_frames)  # Faster!!!
+            except Exception as e:
+                raise FileNotFoundError(f"Error reading audio file '{filename}': {str(e)}")
 
     if waveform.shape[0] == 2:  ## Stereo audio
         if sr != 44100:

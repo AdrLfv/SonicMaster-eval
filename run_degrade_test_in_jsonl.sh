@@ -1,11 +1,11 @@
 #!/bin/bash
 #SBATCH --time=24:00:00
-#SBATCH --job-name=degrade
+#SBATCH --job-name=degrade_test
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=32
 #SBATCH --partition=standard
-#SBATCH --output=/work/vita/alefevre/programs/SonicMaster/logs/degrade/%j.out
-#SBATCH --error=/work/vita/alefevre/programs/SonicMaster/logs/degrade/%j.err
+#SBATCH --output=/work/vita/alefevre/programs/SonicMaster/logs/degrade_test/%j.out
+#SBATCH --error=/work/vita/alefevre/programs/SonicMaster/logs/degrade_test/%j.err
 
 
 # Load modules
@@ -38,7 +38,6 @@ echo "Running degradation: $DEGRADATION"
 
 python dataset_scripts/degrade_final_chunks.py \
   --in_jsonl /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster/clean/metadata.jsonl \
-  --out_folder /work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster/degraded/${DEGRADATION}_degraded_cropped \
+  --out_folder /scratch/alefevre/test_sonicmaster/${DEGRADATION}_degraded \
   --deg_spec $DEGRADATION \
-  --output_format hdf5 \
-  --crop_to_original
+  --output_format hdf5

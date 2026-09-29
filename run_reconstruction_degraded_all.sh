@@ -20,7 +20,7 @@ set -e
 PROJECT_ROOT=/work/vita/alefevre/programs/SonicMaster
 DEGRADED_BASE="/work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster/degraded"
 
-ALL_DEGRADATIONS="airy big boom bright clarity clip comp dark mic mix mud punch real small stereo vocal volume warm xband"
+ALL_DEGRADATIONS="airy big big_cropped boom bright clarity clip comp dark mic mic_cropped mix mix_cropped mud punch real real_cropped small small_cropped stereo vocal volume warm xband"
 DEGRADATIONS="$ALL_DEGRADATIONS"
 DRY_RUN=0
 

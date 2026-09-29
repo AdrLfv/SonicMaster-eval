@@ -20,9 +20,9 @@
 set -e
 
 PROJECT_ROOT=/work/vita/alefevre/programs/SonicMaster
-DEGRADED_BASE="/work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster/degraded"
+DEGRADED_BASE="/scratch/alefevre/miles_davis_test_set/degraded"
 
-ALL_DEGRADATIONS="airy big big_cropped boom bright clarity clip comp dark mic mic_cropped mix mix_cropped mud punch real real_cropped small small_cropped stereo vocal volume warm xband"
+ALL_DEGRADATIONS="airy big boom bright clarity clip comp dark mic mix mud punch real small stereo vocal volume warm xband"
 DEGRADATIONS="$ALL_DEGRADATIONS"
 PROMPT=""
 DRY_RUN=0
@@ -66,11 +66,11 @@ for DEG in $DEGRADATIONS; do
 
   # Run 1: without prompt
   echo "  [no prompt]"
-  submit sbatch "${PROJECT_ROOT}/run_restoration.sh" "$DEG_LC" ""
+  submit sbatch "${PROJECT_ROOT}/run_restoration_miles.sh" "$DEG_LC" ""
 
   # Run 2: with per-sample JSONL prompt
   echo "  [with JSONL prompt]"
-  submit sbatch "${PROJECT_ROOT}/run_restoration.sh" "$DEG_LC" "__USE_JSONL_PROMPT__"
+  submit sbatch "${PROJECT_ROOT}/run_restoration_miles.sh" "$DEG_LC" "__USE_JSONL_PROMPT__"
 done
 
 echo ""

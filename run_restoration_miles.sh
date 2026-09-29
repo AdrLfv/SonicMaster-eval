@@ -44,27 +44,25 @@ fi
 echo "Running restoration for degradation: $DEGRADATION"
 
 # Build paths — read from per-degradation subfolder
-IN_JSONL="/work/vita/datasets/audio/sonicmaster/audios/test_sonicmaster/degraded/${DEGRADATION}_degraded/degradation_pairs.jsonl"
+IN_JSONL="/scratch/alefevre/miles_davis_test_set/degraded/${DEGRADATION}_degraded/degradation_pairs.jsonl"
 
 if [ ! -f "$IN_JSONL" ]; then
   echo "Error: Could not find JSONL file: ${IN_JSONL}"
   exit 1
 fi
 
-OUT_ROOT=${OUT_ROOT:-/scratch/alefevre/evaluation_sonicmaster/restored}
-
 # Determine output folder based on whether prompt is provided
 USE_JSONL_PROMPT=0
 if [ "$PROMPT" = "__USE_JSONL_PROMPT__" ]; then
   USE_JSONL_PROMPT=1
   PROMPT=""
-  OUT_FOLDER="${OUT_ROOT}/${DEGRADATION}_sm_restored_prompt"
+  OUT_FOLDER="/scratch/alefevre/miles_davis_test_set/restored_SM/${DEGRADATION}_sm_restored_prompt"
   echo "Running restoration WITH per-sample JSONL prompts"
 elif [ -z "$PROMPT" ]; then
-  OUT_FOLDER="${OUT_ROOT}/${DEGRADATION}_sm_restored"
+  OUT_FOLDER="/scratch/alefevre/miles_davis_test_set/restored_SM/${DEGRADATION}_sm_restored"
   echo "Running restoration WITHOUT prompt"
 else
-  OUT_FOLDER="${OUT_ROOT}/${DEGRADATION}_sm_restored_prompt"
+  OUT_FOLDER="/scratch/alefevre/miles_davis_test_set/restored_SM/${DEGRADATION}_sm_restored_prompt"
   echo "Running restoration WITH prompt: $PROMPT"
 fi
 
